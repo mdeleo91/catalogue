@@ -1,0 +1,46 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Orbitron:wght@600;700;800&display=swap");
+@import "tailwindcss";
+
+/* Catalog brand: dark, organized, nostalgic. Purple primary, Orbitron display,
+   Inter body. "Know what you have. Know where it is." */
+@theme {
+  --color-ink: #e6e8ee;
+  --color-ink-2: #a9b1bf;
+  --color-ink-3: #8b93a1;
+  --color-surface: #0d0f13;
+  --color-card: #151823;
+  --color-line: #1f2430;
+  --color-accent: #8b5cf6;
+  --color-accent-deep: #6b4eff;
+  --color-accent-soft: #a78bfa;
+  --color-good: #4ade80;
+  --color-warn: #f59e0b;
+  --color-bad: #ef4444;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Orbitron", "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+html,
+body {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Subtle vignette for a premium retro feel, per the brand guide. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(107, 78, 255, 0.08), transparent 60%),
+    radial-gradient(120% 100% at 50% 100%, rgba(0, 0, 0, 0.5), transparent 55%);
+  z-index: 0;
+}
+
+#root { position: relative; z-index: 1; }
+
+* { scrollbar-width: thin; scrollbar-color: var(--color-line) transparent; }
