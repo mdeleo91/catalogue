@@ -9,7 +9,7 @@ import LocationDetail from './pages/LocationDetail'
 import Analytics from './pages/Analytics'
 import Wishlist from './pages/Wishlist'
 import Settings from './pages/Settings'
-import { useCurrentUser } from './lib/store'
+import { useCurrentUser, useStore } from './lib/store'
 
 const tabs = [
   { to: '/', label: 'Home', icon: '⌂' },
@@ -21,6 +21,7 @@ const tabs = [
 
 export default function App() {
   const user = useCurrentUser()
+  const { syncError } = useStore()
   const { pathname } = useLocation()
 
   return (
@@ -39,6 +40,12 @@ export default function App() {
           {user.name}
         </NavLink>
       </header>
+
+      {syncError && (
+        <div className="border-b border-warn/40 bg-warn/10 px-4 py-2 text-xs text-warn">
+          {syncError}
+        </div>
+      )}
 
       <main className="flex-1 px-4 pb-24 pt-4">
         <Routes>

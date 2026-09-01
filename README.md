@@ -18,9 +18,38 @@ npm run dev      # http://localhost:5173
 npm run build    # production build in dist/
 ```
 
-The app launches with a small demo collection so every screen is explorable.
-Settings → "Reset to demo data" restores it; Export/Import moves the collection
-between browsers as JSON.
+The app has two modes:
+
+- **Demo mode** (no configuration): launches with a small seeded collection stored
+  in the browser's localStorage, with a user switcher instead of real accounts.
+- **Cloud mode** (Supabase configured): real email/password accounts, one shared
+  collection for the family, live sync between devices.
+
+## Going live with Supabase
+
+1. Create a project at [supabase.com](https://supabase.com) (free tier is fine).
+2. In the Supabase dashboard, open **SQL Editor**, paste the entire contents of
+   `supabase/schema.sql`, and run it once. This creates the tables, row-level
+   security, invite-code functions, and realtime publication.
+3. Under **Authentication → Sign In / Up**, make sure the **Email** provider is
+   enabled. Optional: turn off "Confirm email" so accounts work instantly
+   (otherwise each account must click a confirmation link first — the app
+   handles that flow too).
+4. In Vercel → Project → **Settings → Environment Variables**, add
+   (values are in Supabase → Settings → API):
+   - `VITE_SUPABASE_URL` — the Project URL
+   - `VITE_SUPABASE_ANON_KEY` — the `anon` public key
+5. Redeploy. The app now opens with a sign-in screen.
+
+First use: create an account, tap **Start a collection**, and enter your name.
+Settings then shows an **invite code** — the second family member creates their
+own account, taps **Join with a code**, and enters it. Both accounts now see and
+edit the same live collection; every add/edit/move is attributed in the shared
+activity history and syncs to other signed-in devices within a second or two.
+
+The anon key is safe to expose in the front end: every table is protected by
+row-level security, so a signed-in user can only touch the collection they are
+a member of, and signed-out requests can touch nothing.
 
 ## What's in the MVP
 
@@ -56,19 +85,27 @@ between browsers as JSON.
 
 - **Front end:** React 18 + Vite + Tailwind CSS 4, mobile-first, hash-routed so it
   can be hosted statically.
-- **State:** a single reducer store (`src/lib/store.jsx`) persisted to
-  `localStorage`, seeded with demo data (`src/lib/seed.js`). Photos are compressed
-  to small JPEG data URLs on-device (`src/lib/image.js`) so they fit in local
-  storage.
+- **State:** a single reducer store (`src/lib/store.jsx`) with two persistence
+  backends behind the same dispatch API. Demo mode persists the whole state to
+  `localStorage` (seeded from `src/lib/seed.js`). Cloud mode loads the shared
+  collection from Supabase, diffs each reducer transition, and upserts/deletes
+  the changed rows; realtime `postgres_changes` events (and tab re-focus)
+  trigger a refetch so other members' edits appear live. Photos are compressed
+  to small JPEG data URLs on-device (`src/lib/image.js`).
+- **Auth:** `src/lib/auth.jsx` + `src/pages/SignIn.jsx` /
+  `src/pages/CollectionSetup.jsx` — Supabase email/password accounts, then
+  create-or-join a shared collection via an invite code (server-side RPCs). The
+  Anthropic API key stays per-device in localStorage, never in the database.
 - **AI:** `src/lib/ai.js` calls the Anthropic API (`claude-opus-5`, official
   `@anthropic-ai/sdk`) directly from the browser with the user's own key, which is
   stored only on-device. It returns structured fields plus per-field confidence,
   rendered as confirm-me badges in the add-item form.
-- **Backend path:** `supabase/schema.sql` contains the production schema —
-  collections + members, the location tree, items, components, images, append-only
-  location history, valuations, wishlist, and activity, all under row-level
-  security so only collection members can read or write. The local store mirrors
-  this shape, so swapping the persistence layer is contained to `store.jsx`.
+- **Backend:** `supabase/schema.sql` — collections and members are relational;
+  collection content (items, locations, history, activity, wishlist) is stored
+  document-style with the app's row shape in a `jsonb` column, since all search
+  and analytics happen client-side over a family-sized collection. Everything
+  sits behind row-level security keyed on collection membership, and the
+  create/join flows are `security definer` RPCs.
 
 ## Layout
 

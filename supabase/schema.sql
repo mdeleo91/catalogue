@@ -1,16 +1,22 @@
--- Catalog — production schema for Supabase (PostgreSQL + RLS).
--- The MVP front end runs on an on-device store with the same shape; this
--- schema is the target for the shared, synced backend described in the PRD.
+-- Catalog — production schema. Run this once in the Supabase SQL editor.
+--
+-- Design: collections + members are relational; collection content tables
+-- (items, locations, history, activity, wishlist) are document-style — the
+-- app's row shape lives in a jsonb `data` column, keyed by the app's own ids.
+-- All analytics/search happen client-side over the (small, family-sized)
+-- collection, so this keeps the sync layer simple and schema drift painless.
+-- Everything is protected by RLS: only members of a collection can touch it.
 
 create extension if not exists "pgcrypto";
 
 -- ---------------------------------------------------------------------------
--- Collections & membership (one shared collection, multiple users)
+-- Collections & membership
 -- ---------------------------------------------------------------------------
 
 create table collections (
   id uuid primary key default gen_random_uuid(),
   name text not null default 'Our Collection',
+  invite_code text not null unique,
   created_at timestamptz not null default now()
 );
 
@@ -19,174 +25,66 @@ create table collection_members (
   user_id uuid not null references auth.users(id) on delete cascade,
   role text not null default 'editor' check (role in ('owner', 'editor')),
   display_name text not null,
+  created_at timestamptz not null default now(),
   primary key (collection_id, user_id)
 );
 
 -- ---------------------------------------------------------------------------
--- Structured locations: house → room → area → shelf → container (a tree)
--- ---------------------------------------------------------------------------
-
-create table locations (
-  id uuid primary key default gen_random_uuid(),
-  collection_id uuid not null references collections(id) on delete cascade,
-  parent_id uuid references locations(id) on delete restrict,
-  name text not null,
-  kind text not null check (kind in ('house', 'room', 'area', 'shelf', 'container')),
-  container_type text,
-  qr_code text unique,
-  photo_url text,
-  created_at timestamptz not null default now()
-);
-
-create index locations_parent_idx on locations(parent_id);
-create index locations_collection_idx on locations(collection_id);
-
--- ---------------------------------------------------------------------------
--- Items: physical artifacts. Items reference structured locations, never a
--- free-text location string. temp_status covers On Loan / In Transit / etc.
+-- Collection content (document tables; `data` holds the app object)
 -- ---------------------------------------------------------------------------
 
 create table items (
-  id uuid primary key default gen_random_uuid(),
+  id text primary key,
   collection_id uuid not null references collections(id) on delete cascade,
-  type text not null check (type in ('game', 'magazine', 'guide', 'manual', 'box', 'console', 'accessory')),
-  title text not null,
-  platform text,
-  publisher text,
-  developer text,
-  release_year int,
-  region text,
-  edition text,
-  genre text,
-  franchise text,
-  issue_number int,
-  publication_date date,
-  isbn text,
-  author text,
-  model text,
-  serial_number text,
-  working_status text,
-  condition text check (condition in ('Mint', 'Near Mint', 'Excellent', 'Very Good', 'Good', 'Fair', 'Poor')),
-  completeness text,
-  location_id uuid references locations(id) on delete set null,
-  temp_status text,
-  acquisition_method text,
-  source text,
-  purchase_date date,
-  purchase_price numeric(10, 2),
-  notes text,
-  -- Per-field AI confidence at identification time, e.g. {"title": 0.99}
-  ai_confidence jsonb not null default '{}'::jsonb,
-  created_by uuid references auth.users(id),
-  created_at timestamptz not null default now(),
+  data jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+create table locations (
+  id text primary key,
+  collection_id uuid not null references collections(id) on delete cascade,
+  data jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+create table location_history (
+  id text primary key,
+  collection_id uuid not null references collections(id) on delete cascade,
+  data jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+create table activity (
+  id text primary key,
+  collection_id uuid not null references collections(id) on delete cascade,
+  data jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+create table wishlist (
+  id text primary key,
+  collection_id uuid not null references collections(id) on delete cascade,
+  data jsonb not null,
   updated_at timestamptz not null default now()
 );
 
 create index items_collection_idx on items(collection_id);
-create index items_location_idx on items(location_id);
-create index items_title_idx on items using gin (to_tsvector('english', title));
-
--- Physical components of an item (cartridge, box, manual, map, …).
--- Completeness % is derived from present/missing components.
-create table item_components (
-  id uuid primary key default gen_random_uuid(),
-  item_id uuid not null references items(id) on delete cascade,
-  name text not null,
-  present boolean not null default true,
-  condition text,
-  sort_order int not null default 0
-);
-
-create index item_components_item_idx on item_components(item_id);
-
--- Photographs live in Supabase Storage; rows reference the stored object.
-create table item_images (
-  id uuid primary key default gen_random_uuid(),
-  item_id uuid not null references items(id) on delete cascade,
-  storage_path text not null,
-  kind text default 'photo',
-  created_at timestamptz not null default now()
-);
+create index locations_collection_idx on locations(collection_id);
+create index location_history_collection_idx on location_history(collection_id);
+create index activity_collection_idx on activity(collection_id);
+create index wishlist_collection_idx on wishlist(collection_id);
 
 -- ---------------------------------------------------------------------------
--- Location history: append-only; never destroyed when an item moves.
--- Subject is an item or a location (container moves).
--- ---------------------------------------------------------------------------
-
-create table location_history (
-  id uuid primary key default gen_random_uuid(),
-  collection_id uuid not null references collections(id) on delete cascade,
-  subject_type text not null check (subject_type in ('item', 'location')),
-  subject_id uuid not null,
-  location_id uuid references locations(id) on delete set null,
-  temp_status text,
-  path_snapshot text not null,
-  moved_at timestamptz not null default now(),
-  moved_by uuid references auth.users(id)
-);
-
-create index location_history_subject_idx on location_history(subject_type, subject_id, moved_at desc);
-
--- ---------------------------------------------------------------------------
--- Valuations: estimated value over time (source-labeled estimates).
--- ---------------------------------------------------------------------------
-
-create table valuations (
-  id uuid primary key default gen_random_uuid(),
-  item_id uuid not null references items(id) on delete cascade,
-  estimated_value numeric(10, 2) not null,
-  source text not null default 'manual',
-  as_of date not null default current_date,
-  created_at timestamptz not null default now()
-);
-
-create index valuations_item_idx on valuations(item_id, as_of desc);
-
--- ---------------------------------------------------------------------------
--- Wishlist & activity
--- ---------------------------------------------------------------------------
-
-create table wishlist (
-  id uuid primary key default gen_random_uuid(),
-  collection_id uuid not null references collections(id) on delete cascade,
-  title text not null,
-  platform text,
-  desired_condition text,
-  desired_completeness text,
-  target_price numeric(10, 2),
-  priority text not null default 'Medium' check (priority in ('High', 'Medium', 'Low')),
-  notes text,
-  created_by uuid references auth.users(id),
-  created_at timestamptz not null default now()
-);
-
-create table activity (
-  id uuid primary key default gen_random_uuid(),
-  collection_id uuid not null references collections(id) on delete cascade,
-  user_id uuid references auth.users(id),
-  action text not null,
-  subject text not null,
-  item_id uuid references items(id) on delete set null,
-  location_id uuid references locations(id) on delete set null,
-  created_at timestamptz not null default now()
-);
-
-create index activity_collection_idx on activity(collection_id, created_at desc);
-
--- ---------------------------------------------------------------------------
--- Row-level security: members of a collection can read and write it.
+-- Row-level security
 -- ---------------------------------------------------------------------------
 
 alter table collections enable row level security;
 alter table collection_members enable row level security;
-alter table locations enable row level security;
 alter table items enable row level security;
-alter table item_components enable row level security;
-alter table item_images enable row level security;
+alter table locations enable row level security;
 alter table location_history enable row level security;
-alter table valuations enable row level security;
-alter table wishlist enable row level security;
 alter table activity enable row level security;
+alter table wishlist enable row level security;
 
 create or replace function is_member(cid uuid) returns boolean
 language sql stable security definer set search_path = public as $$
@@ -196,25 +94,78 @@ language sql stable security definer set search_path = public as $$
   );
 $$;
 
-create policy member_read on collections for select using (is_member(id));
-create policy members_self on collection_members for select using (user_id = auth.uid() or is_member(collection_id));
+create policy member_read_collections on collections
+  for select using (is_member(id));
 
-create policy member_all_locations on locations for all
-  using (is_member(collection_id)) with check (is_member(collection_id));
+create policy member_read_members on collection_members
+  for select using (user_id = auth.uid() or is_member(collection_id));
+create policy member_update_self on collection_members
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+
 create policy member_all_items on items for all
   using (is_member(collection_id)) with check (is_member(collection_id));
-create policy member_all_components on item_components for all
-  using (exists (select 1 from items i where i.id = item_id and is_member(i.collection_id)))
-  with check (exists (select 1 from items i where i.id = item_id and is_member(i.collection_id)));
-create policy member_all_images on item_images for all
-  using (exists (select 1 from items i where i.id = item_id and is_member(i.collection_id)))
-  with check (exists (select 1 from items i where i.id = item_id and is_member(i.collection_id)));
-create policy member_all_history on location_history for all
+create policy member_all_locations on locations for all
   using (is_member(collection_id)) with check (is_member(collection_id));
-create policy member_all_valuations on valuations for all
-  using (exists (select 1 from items i where i.id = item_id and is_member(i.collection_id)))
-  with check (exists (select 1 from items i where i.id = item_id and is_member(i.collection_id)));
-create policy member_all_wishlist on wishlist for all
+create policy member_all_history on location_history for all
   using (is_member(collection_id)) with check (is_member(collection_id));
 create policy member_all_activity on activity for all
   using (is_member(collection_id)) with check (is_member(collection_id));
+create policy member_all_wishlist on wishlist for all
+  using (is_member(collection_id)) with check (is_member(collection_id));
+
+-- ---------------------------------------------------------------------------
+-- RPCs: create a collection, or join one with its invite code.
+-- Both run as the signed-in user (security definer bypasses RLS for the
+-- insert, auth.uid() ties the membership to the caller).
+-- ---------------------------------------------------------------------------
+
+create or replace function create_collection(p_name text, p_display_name text)
+returns json
+language plpgsql security definer set search_path = public as $$
+declare
+  v_id uuid;
+  v_code text;
+begin
+  if auth.uid() is null then
+    raise exception 'not signed in';
+  end if;
+  v_code := lower(substr(md5(gen_random_uuid()::text), 1, 8));
+  insert into collections (name, invite_code)
+    values (coalesce(nullif(trim(p_name), ''), 'Our Collection'), v_code)
+    returning id into v_id;
+  insert into collection_members (collection_id, user_id, role, display_name)
+    values (v_id, auth.uid(), 'owner', coalesce(nullif(trim(p_display_name), ''), 'Collector'));
+  return json_build_object('collection_id', v_id, 'invite_code', v_code);
+end;
+$$;
+
+create or replace function join_collection(p_code text, p_display_name text)
+returns json
+language plpgsql security definer set search_path = public as $$
+declare
+  v_id uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'not signed in';
+  end if;
+  select id into v_id from collections where invite_code = lower(trim(p_code));
+  if v_id is null then
+    raise exception 'invalid invite code';
+  end if;
+  insert into collection_members (collection_id, user_id, role, display_name)
+    values (v_id, auth.uid(), 'editor', coalesce(nullif(trim(p_display_name), ''), 'Collector'))
+    on conflict (collection_id, user_id) do nothing;
+  return json_build_object('collection_id', v_id);
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Realtime: broadcast changes so other signed-in devices refresh live.
+-- ---------------------------------------------------------------------------
+
+alter publication supabase_realtime add table items;
+alter publication supabase_realtime add table locations;
+alter publication supabase_realtime add table location_history;
+alter publication supabase_realtime add table activity;
+alter publication supabase_realtime add table wishlist;
+alter publication supabase_realtime add table collection_members;

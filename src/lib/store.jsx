@@ -1,9 +1,13 @@
-import { createContext, useContext, useEffect, useMemo, useReducer } from 'react'
+import {
+  createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState,
+} from 'react'
 import { uid } from './id'
 import { locationPath, isDescendant } from './locations'
 import { buildSeedState } from './seed'
+import { supabase } from './supabase'
 
 const STORAGE_KEY = 'catalog-state-v1'
+const SETTINGS_KEY = 'catalog-settings-v1'
 
 const StoreContext = createContext(null)
 
@@ -38,6 +42,7 @@ function historyEntry(state, subjectType, subjectId, locationId, tempStatus) {
 function reducer(state, { type, payload }) {
   switch (type) {
     case 'SET_USER':
+      if (state.cloud) return state // in cloud mode identity comes from the signed-in account
       return { ...state, currentUserId: payload }
 
     case 'ADD_ITEM': {
@@ -151,18 +156,49 @@ function reducer(state, { type, payload }) {
     case 'SET_SETTINGS':
       return { ...state, settings: { ...state.settings, ...payload } }
 
-    case 'IMPORT_STATE':
+    case 'IMPORT_STATE': {
+      if (state.cloud) {
+        // In cloud mode an import replaces collection content but never
+        // identity — users and the current account come from Supabase.
+        return {
+          ...state,
+          items: payload.items || [],
+          locations: payload.locations || [],
+          locationHistory: payload.locationHistory || [],
+          activityLog: payload.activityLog || [],
+          wishlist: payload.wishlist || [],
+        }
+      }
       return { ...payload }
+    }
 
     case 'RESET_DEMO':
+      if (state.cloud) return state
       return buildSeedState()
+
+    case 'REPLACE_STATE': // cloud refetch
+      return payload
 
     default:
       return state
   }
 }
 
-function loadInitial() {
+function loadLocalSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch (e) {
+    console.warn('Could not load settings', e)
+  }
+  return { anthropicApiKey: '' }
+}
+
+// ---------------------------------------------------------------------------
+// Local (demo) mode: whole state persisted to this browser.
+// ---------------------------------------------------------------------------
+
+function loadInitialLocal() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) return JSON.parse(raw)
@@ -172,8 +208,8 @@ function loadInitial() {
   return buildSeedState()
 }
 
-export function StoreProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, null, loadInitial)
+function LocalStoreProvider({ children }) {
+  const [state, dispatch] = useReducer(reducer, null, loadInitialLocal)
 
   useEffect(() => {
     try {
@@ -183,8 +219,197 @@ export function StoreProvider({ children }) {
     }
   }, [state])
 
-  const value = useMemo(() => ({ state, dispatch }), [state])
+  const value = useMemo(() => ({ state, dispatch, syncError: null }), [state])
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
+}
+
+// ---------------------------------------------------------------------------
+// Cloud mode: state lives in Supabase, scoped to the shared collection.
+// Writes are diffed against the previous state and upserted/deleted row by
+// row; realtime events from other devices trigger a refetch.
+// ---------------------------------------------------------------------------
+
+const CLOUD_TABLES = {
+  items: 'items',
+  locations: 'locations',
+  locationHistory: 'location_history',
+  activityLog: 'activity',
+  wishlist: 'wishlist',
+}
+
+const byDesc = (key) => (a, b) => String(b[key] || '').localeCompare(String(a[key] || ''))
+
+function CloudStoreProvider({ cloud, children }) {
+  const { collectionId, userId } = cloud
+  const [state, setState] = useState(null)
+  const stateRef = useRef(null)
+  const pendingWrites = useRef(0)
+  const refetchTimer = useRef(null)
+  const [syncError, setSyncError] = useState(null)
+
+  const fetchState = useCallback(async () => {
+    try {
+      const keys = Object.keys(CLOUD_TABLES)
+      const [membersRes, ...contentRes] = await Promise.all([
+        supabase.from('collection_members').select('user_id, display_name').eq('collection_id', collectionId),
+        ...keys.map((k) =>
+          supabase.from(CLOUD_TABLES[k]).select('id, data').eq('collection_id', collectionId),
+        ),
+      ])
+      const failed = [membersRes, ...contentRes].find((r) => r.error)
+      if (failed) throw failed.error
+
+      const content = {}
+      keys.forEach((k, i) => {
+        content[k] = (contentRes[i].data || []).map((row) => row.data)
+      })
+      content.items.sort(byDesc('createdAt'))
+      content.locationHistory.sort(byDesc('at'))
+      content.activityLog.sort(byDesc('at'))
+      content.wishlist.sort(byDesc('createdAt'))
+
+      const next = {
+        version: 1,
+        cloud: true,
+        users: (membersRes.data || []).map((m) => ({ id: m.user_id, name: m.display_name })),
+        currentUserId: userId,
+        ...content,
+        settings: stateRef.current?.settings || loadLocalSettings(),
+      }
+      stateRef.current = next
+      setState(next)
+      setSyncError(null)
+    } catch (e) {
+      console.error('Could not load collection from Supabase', e)
+      setSyncError('Could not load the collection — check your connection and pull to refresh.')
+      if (!stateRef.current) {
+        // Leave a usable (empty) state so the app renders rather than hanging.
+        const empty = {
+          version: 1,
+          cloud: true,
+          users: cloud.members || [],
+          currentUserId: userId,
+          items: [], locations: [], locationHistory: [], activityLog: [], wishlist: [],
+          settings: loadLocalSettings(),
+        }
+        stateRef.current = empty
+        setState(empty)
+      }
+    }
+  }, [collectionId, userId, cloud.members])
+
+  const persistDiff = useCallback(
+    async (prev, next) => {
+      pendingWrites.current += 1
+      try {
+        for (const [key, table] of Object.entries(CLOUD_TABLES)) {
+          if (prev[key] === next[key]) continue
+          const prevMap = new Map(prev[key].map((r) => [r.id, r]))
+          const nextIds = new Set(next[key].map((r) => r.id))
+          const upserts = next[key]
+            .filter((r) => prevMap.get(r.id) !== r)
+            .map((r) => ({
+              id: r.id,
+              collection_id: collectionId,
+              data: r,
+              updated_at: new Date().toISOString(),
+            }))
+          const deletes = prev[key].filter((r) => !nextIds.has(r.id)).map((r) => r.id)
+          if (upserts.length) {
+            const { error } = await supabase.from(table).upsert(upserts)
+            if (error) throw error
+          }
+          if (deletes.length) {
+            const { error } = await supabase
+              .from(table)
+              .delete()
+              .in('id', deletes)
+              .eq('collection_id', collectionId)
+            if (error) throw error
+          }
+        }
+        setSyncError(null)
+      } catch (e) {
+        console.error('Cloud save failed', e)
+        setSyncError('Could not save to the cloud — your last change may not be synced. Check your connection.')
+      } finally {
+        pendingWrites.current -= 1
+      }
+    },
+    [collectionId],
+  )
+
+  const dispatch = useCallback(
+    (action) => {
+      const prev = stateRef.current
+      if (!prev) return
+      const next = reducer(prev, action)
+      if (next === prev) return
+      stateRef.current = next
+      setState(next)
+      if (action.type === 'SET_SETTINGS') {
+        try {
+          localStorage.setItem(SETTINGS_KEY, JSON.stringify(next.settings))
+        } catch (e) {
+          console.warn('Could not persist settings', e)
+        }
+        return
+      }
+      persistDiff(prev, next)
+    },
+    [persistDiff],
+  )
+
+  useEffect(() => {
+    fetchState()
+
+    const scheduleRefetch = () => {
+      clearTimeout(refetchTimer.current)
+      refetchTimer.current = setTimeout(() => {
+        if (pendingWrites.current === 0) fetchState()
+      }, 1200)
+    }
+
+    const channel = supabase.channel(`catalog-${collectionId}`)
+    for (const table of [...Object.values(CLOUD_TABLES), 'collection_members']) {
+      channel.on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table, filter: `collection_id=eq.${collectionId}` },
+        scheduleRefetch,
+      )
+    }
+    channel.subscribe()
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') scheduleRefetch()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      clearTimeout(refetchTimer.current)
+      document.removeEventListener('visibilitychange', onVisible)
+      supabase.removeChannel(channel)
+    }
+  }, [collectionId, fetchState])
+
+  const value = useMemo(() => ({ state, dispatch, syncError }), [state, dispatch, syncError])
+
+  if (!state) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center text-sm text-ink-3">
+        Loading your collection…
+      </div>
+    )
+  }
+
+  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
+}
+
+// ---------------------------------------------------------------------------
+
+export function StoreProvider({ cloud, children }) {
+  if (cloud) return <CloudStoreProvider cloud={cloud}>{children}</CloudStoreProvider>
+  return <LocalStoreProvider>{children}</LocalStoreProvider>
 }
 
 export function useStore() {
@@ -195,5 +420,8 @@ export function useStore() {
 
 export function useCurrentUser() {
   const { state } = useStore()
-  return state.users.find((u) => u.id === state.currentUserId) || state.users[0]
+  return (
+    state.users.find((u) => u.id === state.currentUserId) ||
+    state.users[0] || { id: state.currentUserId, name: 'Collector' }
+  )
 }
