@@ -1,20 +1,28 @@
 import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
 
 // Server-side AI identification.
 //
-// The Anthropic key lives here, in a Vercel environment variable, and never
+// The provider key lives here, in a Vercel environment variable, and never
 // reaches a browser or the APK. Callers authenticate with their existing
 // Catalog (Supabase) session, so nobody has to obtain or paste an API key —
 // signing in to Catalog is the only step.
 //
-// Required env (Vercel → Settings → Environment Variables):
-//   ANTHROPIC_API_KEY              server-only; must NOT be VITE_-prefixed
-//   VITE_SUPABASE_URL              already set for the front end
-//   VITE_SUPABASE_PUBLISHABLE_KEY  already set for the front end
+// Either provider works. Set whichever you already have an account with:
+//   ANTHROPIC_API_KEY   Claude  (default model claude-opus-5)
+//   OPENAI_API_KEY      GPT     (default model gpt-6-astra)
+// If both are set, AI_PROVIDER ("anthropic" | "openai") picks between them;
+// otherwise whichever key is present wins. Override the model per provider
+// with ANTHROPIC_MODEL / OPENAI_MODEL.
 
 const MAX_IMAGES = 6
 const MAX_TOTAL_BYTES = 4 * 1024 * 1024
+
+const DEFAULT_MODELS = {
+  anthropic: 'claude-opus-5',
+  openai: 'gpt-6-astra',
+}
 
 const SYSTEM = `You identify physical retro video game collection artifacts from photographs: games, magazines, strategy guides, manuals, boxes, consoles, and accessories.
 
@@ -45,6 +53,21 @@ Rules:
 - Multiple photos are different views of the SAME physical item.
 - Use null for anything you cannot determine.`
 
+const PROMPT = 'Identify this item and return the JSON object.'
+
+// Which provider to use, or null when nothing is configured.
+export function resolveProvider(env = process.env) {
+  const available = {
+    anthropic: Boolean(env.ANTHROPIC_API_KEY),
+    openai: Boolean(env.OPENAI_API_KEY),
+  }
+  const explicit = (env.AI_PROVIDER || '').trim().toLowerCase()
+  if (explicit) return available[explicit] ? explicit : null
+  if (available.anthropic) return 'anthropic'
+  if (available.openai) return 'openai'
+  return null
+}
+
 // Auth is by bearer token and no cookies are involved, so a permissive origin
 // is safe here: a token, not the browser's origin check, is what gates access.
 function cors(res) {
@@ -59,11 +82,11 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).end()
   if (req.method !== 'POST') return res.status(405).json({ error: 'Use POST.' })
 
-  const anthropicKey = process.env.ANTHROPIC_API_KEY
-  if (!anthropicKey) {
+  const provider = resolveProvider()
+  if (!provider) {
     return res.status(503).json({
       error:
-        'AI identification is not configured yet. The collection owner needs to add ANTHROPIC_API_KEY in the Vercel project settings.',
+        'AI identification is not configured yet. The collection owner needs to add either ANTHROPIC_API_KEY or OPENAI_API_KEY in the Vercel project settings.',
       code: 'not_configured',
     })
   }
@@ -80,15 +103,6 @@ export default async function handler(req, res) {
   if (totalBytes > MAX_TOTAL_BYTES) {
     return res.status(413).json({ error: 'Those photos are too large — retake them and try again.' })
   }
-
-  const blocks = images.map((img) => ({
-    type: 'image',
-    source: {
-      type: 'base64',
-      media_type: img.mediaType || 'image/jpeg',
-      data: img.data,
-    },
-  }))
 
   // 2. Who is calling? Must be a signed-in Catalog user.
   const token = (req.headers.authorization || '').replace(/^Bearer /i, '').trim()
@@ -119,32 +133,10 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Only members of a collection can use AI identification.' })
   }
 
-  // 4. Ask Claude.
+  // 4. Ask the model.
   try {
-    const client = new Anthropic({ apiKey: anthropicKey })
-    const response = await client.messages.create({
-      model: 'claude-opus-5',
-      max_tokens: 2048,
-      // Extraction task with a waiting user: medium keeps identification
-      // accurate without paying for deep deliberation.
-      output_config: { effort: 'medium' },
-      system: SYSTEM,
-      messages: [
-        {
-          role: 'user',
-          content: [...blocks, { type: 'text', text: 'Identify this item and return the JSON object.' }],
-        },
-      ],
-    })
-
-    if (response.stop_reason === 'refusal') {
-      return res.status(422).json({ error: 'The model declined to analyze this image. Try a different photo.' })
-    }
-
-    const text = response.content
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text)
-      .join('\n')
+    const text =
+      provider === 'anthropic' ? await askClaude(images) : await askOpenAI(images)
 
     const parsed = extractJson(text)
     if (!parsed?.title) {
@@ -154,20 +146,88 @@ export default async function handler(req, res) {
     }
 
     const { confidence = {}, summary = '', ...fields } = parsed
-    return res.status(200).json({ fields, confidence, summary })
+    return res.status(200).json({ fields, confidence, summary, provider })
   } catch (error) {
-    console.error('Anthropic call failed', error)
-    if (error instanceof Anthropic.AuthenticationError) {
-      return res.status(502).json({ error: 'The configured Anthropic API key was rejected.' })
-    }
-    if (error instanceof Anthropic.RateLimitError) {
-      return res.status(429).json({ error: 'Rate limited by the Anthropic API — wait a moment and try again.' })
-    }
-    if (error instanceof Anthropic.APIError) {
-      return res.status(502).json({ error: `Identification failed (${error.status}).` })
-    }
-    return res.status(500).json({ error: 'Identification failed. Try again.' })
+    console.error(`${provider} call failed`, error)
+    return res.status(error.httpStatus || 502).json({ error: describeError(provider, error) })
   }
+}
+
+export async function askClaude(images) {
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  const response = await client.messages.create({
+    model: process.env.ANTHROPIC_MODEL || DEFAULT_MODELS.anthropic,
+    max_tokens: 2048,
+    // Extraction task with a waiting user: medium keeps identification
+    // accurate without paying for deep deliberation.
+    output_config: { effort: 'medium' },
+    system: SYSTEM,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          ...images.map((img) => ({
+            type: 'image',
+            source: { type: 'base64', media_type: img.mediaType || 'image/jpeg', data: img.data },
+          })),
+          { type: 'text', text: PROMPT },
+        ],
+      },
+    ],
+  })
+
+  if (response.stop_reason === 'refusal') {
+    const err = new Error('declined')
+    err.declined = true
+    err.httpStatus = 422
+    throw err
+  }
+
+  return response.content
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('\n')
+}
+
+export async function askOpenAI(images) {
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  const completion = await client.chat.completions.create({
+    model: process.env.OPENAI_MODEL || DEFAULT_MODELS.openai,
+    max_completion_tokens: 2048,
+    // The system prompt already demands a bare JSON object; this enforces it.
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: SYSTEM },
+      {
+        role: 'user',
+        content: [
+          ...images.map((img) => ({
+            type: 'image_url',
+            image_url: { url: `data:${img.mediaType || 'image/jpeg'};base64,${img.data}` },
+          })),
+          { type: 'text', text: PROMPT },
+        ],
+      },
+    ],
+  })
+  return completion.choices?.[0]?.message?.content || ''
+}
+
+function describeError(provider, error) {
+  if (error.declined) return 'The model declined to analyze this image. Try a different photo.'
+
+  const status = error?.status
+  const label = provider === 'anthropic' ? 'Anthropic' : 'OpenAI'
+  const modelVar = provider === 'anthropic' ? 'ANTHROPIC_MODEL' : 'OPENAI_MODEL'
+
+  if (status === 401 || status === 403) return `The configured ${label} API key was rejected.`
+  if (status === 429) return `Rate limited by ${label} — wait a moment and try again.`
+  // Usually a model name that no longer exists or isn't enabled on the account.
+  if (status === 404) {
+    return `${label} does not recognise the configured model. Set ${modelVar} in Vercel to a model your account can use.`
+  }
+  if (status) return `Identification failed (${label} returned ${status}).`
+  return 'Identification failed. Try again.'
 }
 
 function extractJson(text) {

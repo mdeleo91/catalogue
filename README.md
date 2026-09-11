@@ -79,18 +79,29 @@ is hold one API key on the server, so that **nobody using the app ever handles
 a key** — signing in to Catalog is the only step, for you and anyone you
 invite.
 
-1. Create a key at [console.anthropic.com](https://console.anthropic.com) →
-   **API keys**, and add a little credit under Billing.
-2. In Vercel → Project → **Settings → Environment Variables**, add
-   `ANTHROPIC_API_KEY` with that value. Leave the `VITE_` prefix off — that
-   prefix is what compiles a value into the public browser bundle, and this
-   one must stay server-side.
+Either provider works; set whichever you already have an account with.
+
+1. Get a key — [console.anthropic.com](https://console.anthropic.com) → API
+   keys for Claude, or [platform.openai.com](https://platform.openai.com/api-keys)
+   for GPT — and add a little credit to the account.
+2. In Vercel → Project → **Settings → Environment Variables**, add either
+   `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. Leave the `VITE_` prefix off —
+   that prefix is what compiles a value into the public browser bundle, and
+   these must stay server-side.
 3. Redeploy. Scan now works for every member of the collection.
 
-Usage is billed to that key, roughly a few cents per scan at the configured
-model and effort. `api/identify.js` caps each request at 6 photos and 4 MB and
-refuses anyone who is not a signed-in member of a collection. To trade accuracy
-for cost, change `model` or `output_config.effort` in that file.
+| Variable | Purpose |
+|---|---|
+| `ANTHROPIC_API_KEY` | Use Claude. Default model `claude-opus-5`. |
+| `OPENAI_API_KEY` | Use GPT. Default model `gpt-6-astra`. |
+| `AI_PROVIDER` | Only consulted when both keys are set: `anthropic` or `openai`. Anthropic wins by default. |
+| `ANTHROPIC_MODEL` / `OPENAI_MODEL` | Override the model, e.g. for a cheaper one, or if the default is not enabled on your account. |
+
+Usage is billed to whichever key you set, roughly a few cents per scan.
+`api/identify.js` caps each request at 6 photos and 4 MB and refuses anyone who
+is not a signed-in member of a collection, so the endpoint cannot be used by
+strangers who find it. If a provider rejects the model name, the error in the
+app names the variable to change.
 
 ## Installing on a phone
 
@@ -217,13 +228,14 @@ build or debug locally instead of via CI.
   `src/pages/CollectionSetup.jsx` — Supabase email/password accounts, then
   create-or-join a shared collection via an invite code (server-side RPCs). The
   Anthropic API key stays per-device in localStorage, never in the database.
-- **AI:** `api/identify.js` is a Vercel serverless function that calls Claude
-  (`claude-opus-5`) with a key held in the server environment. `src/lib/ai.js`
-  posts photos to it using the caller's existing Supabase session; the function
-  verifies that session and that the caller belongs to a collection before
-  spending anything, so the endpoint can't be used by strangers. No API key
-  reaches the browser or the APK, and the client bundle no longer carries the
-  Anthropic SDK at all.
+- **AI:** `api/identify.js` is a Vercel serverless function that calls either
+  Claude or GPT — whichever key is present in the server environment — behind
+  one request/response contract, so the client is provider-agnostic.
+  `src/lib/ai.js` posts photos to it using the caller's existing Supabase
+  session; the function verifies that session and that the caller belongs to a
+  collection before spending anything, so the endpoint can't be used by
+  strangers. No API key reaches the browser or the APK, and the client bundle
+  carries neither provider's SDK.
 - **Backend:** `supabase/schema.sql` — collections and members are relational;
   collection content (items, locations, history, activity, wishlist) is stored
   document-style with the app's row shape in a `jsonb` column, since all search

@@ -124,8 +124,8 @@ export default function Settings() {
             : 'AI identification needs a signed-in Catalog account. In demo mode, Scan falls back to manual entry with your photos attached.'}
         </p>
         <p className="text-xs text-ink-3">
-          Photos are sent to Anthropic only at the moment you tap Identify, and are not retained by
-          the service. If identification is unavailable, Scan still works as guided manual entry.
+          Photos are sent to the configured AI provider (Claude or GPT) only at the moment you tap
+          Identify. If identification is unavailable, Scan still works as guided manual entry.
         </p>
       </Card>
 
