@@ -1,0 +1,8 @@
+{
+  "appId": "app.mithos.catalog",
+  "appName": "Catalog",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": false
+  }
+}

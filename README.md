@@ -69,6 +69,68 @@ The publishable key is safe to expose in the front end: every table is
 protected by row-level security, so a signed-in user can only touch the
 collection they are a member of, and signed-out requests can touch nothing.
 
+## Installing on a phone
+
+### As an Android APK
+
+The APK is built by GitHub Actions — nothing needs to be installed on your
+machine. The web build is wrapped in a native shell by
+[Capacitor](https://capacitorjs.com): the app ships with its own icon and
+runs full-screen, and because the UI is bundled inside the APK it opens
+instantly without downloading anything. It talks to the same Supabase
+collection as the website, so both stay in sync. (Note there is no offline
+mode — viewing or editing the collection needs a connection, since the data
+lives in Supabase.)
+
+1. In GitHub → your repo → **Settings → Secrets and variables → Actions**, add
+   the same two values you gave Vercel. Either tab works — "Variables" is the
+   honest choice since both are public-by-design, "Secrets" also works:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_PUBLISHABLE_KEY`
+
+   The build fails fast with a clear message if these are missing, rather than
+   silently shipping an APK stuck in offline demo mode.
+2. Go to the **Actions** tab → **Build Android APK** → **Run workflow**.
+3. When it finishes (~5 minutes), open the run and download the
+   **catalog-apk** artifact from the Summary page. It is a zip containing
+   `catalog-<build number>.apk`.
+4. Get the APK onto the phone — email it to yourself, drop it in Drive, or USB
+   transfer — then tap it. Android will ask you to allow installing unknown
+   apps from whatever app you opened it with; that prompt is expected for any
+   app not installed from the Play Store.
+
+Pushes that touch the app build an APK automatically, so the newest artifact
+is always current.
+
+**About signing:** these are debug-signed APKs, which is fine for sideloading
+onto your own devices. The workflow caches the signing key so a new build
+installs over the old one without uninstalling first. GitHub evicts unused
+caches after 7 days, so if you go a while between builds you may need to
+uninstall before installing the next one — collection data is safe either
+way, since it lives in Supabase, not on the phone. For permanently stable
+signing, generate a keystore with `keytool -genkey -v -keystore
+catalog.keystore -alias catalog -keyalg RSA -keysize 2048 -validity 10000`,
+store it as a base64 secret, and switch the workflow to `assembleRelease`.
+
+### As an installable web app (no APK)
+
+The deployed site is also a PWA, which takes seconds and works on iPhone too:
+open it in the phone browser and choose **Add to Home Screen** (Safari share
+menu, or Chrome's ⋮ menu → *Add to Home screen* / *Install app*). You get the
+icon and a full-screen, chrome-less window. What the APK adds over this is a
+real installed app entry in the launcher and app list, and a UI bundled in
+the package rather than fetched from the network on open.
+
+### Working on the native project
+
+```bash
+npm run icons          # regenerate app icons/splash from the brand palette
+npm run android:sync   # rebuild the web app and copy it into android/
+```
+
+`npx cap open android` opens the project in Android Studio if you want to
+build or debug locally instead of via CI.
+
 ## What's in the MVP
 
 - **Scan** — photograph an item (multiple angles of the same physical artifact

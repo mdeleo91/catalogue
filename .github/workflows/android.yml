@@ -1,0 +1,92 @@
+name: Build Android APK
+
+# Produces an installable APK as a downloadable artifact. Run it from the
+# Actions tab (Run workflow), or let it run automatically on pushes that
+# touch the app.
+on:
+  workflow_dispatch:
+  push:
+    branches: ['**']
+    paths:
+      - 'src/**'
+      - 'android/**'
+      - 'index.html'
+      - 'package*.json'
+      - 'capacitor.config.json'
+      - '.github/workflows/android.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # Gradle generates a random debug signing key on first build. Caching it
+      # keeps the APK signature stable between runs, so a new build installs
+      # over the previous one instead of demanding an uninstall first.
+      - name: Cache debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: debug-keystore-v1
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check Supabase configuration
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY || vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+            echo "::error::Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY under Settings → Secrets and variables → Actions. Without them the APK would ship in offline demo mode."
+            exit 1
+          fi
+
+      - name: Build web app
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY || vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+        run: npm run build
+
+      - name: Copy web build into the Android project
+        run: npx cap sync android
+
+      - name: Assemble APK
+        run: ./gradlew assembleDebug --no-daemon
+        working-directory: android
+
+      - name: Name the APK with the build number
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/debug/app-debug.apk "out/catalog-${{ github.run_number }}.apk"
+          ls -lh out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog-apk
+          path: out/*.apk
+          if-no-files-found: error
+          retention-days: 90

@@ -2,15 +2,18 @@
   "name": "catalog",
   "private": true,
   "version": "0.1.0",
-  "description": "Catalog — retro video game & media collection management",
+  "description": "Catalog \u2014 retro video game & media collection management",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "icons": "node scripts/generate-icons.mjs && capacitor-assets generate --android",
+    "android:sync": "npm run build && cap sync android"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
+    "@capacitor/core": "^8.5.1",
     "@supabase/supabase-js": "^2.112.4",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
@@ -18,8 +21,12 @@
     "react-router-dom": "^6.30.0"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.1",
     "@tailwindcss/vite": "^4.1.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "sharp": "^0.35.4",
     "tailwindcss": "^4.1.0",
     "vite": "^6.2.0"
   }
