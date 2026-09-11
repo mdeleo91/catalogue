@@ -9,7 +9,7 @@ import LocationStep from '../components/scan/LocationStep'
 import ResultStep from '../components/scan/ResultStep'
 import SuccessStep from '../components/scan/SuccessStep'
 import { Card } from '../components/ui'
-import { aiSignedIn, identifyItem } from '../lib/ai'
+import { aiSignedIn, identifyItem, lookupValue } from '../lib/ai'
 import { DEFAULT_COMPONENTS } from '../lib/constants'
 import { uid } from '../lib/id'
 import { fileToDataUrls } from '../lib/image'
@@ -62,6 +62,7 @@ export default function Scan() {
   const [saving, setSaving] = useState(false)
   const [savedId, setSavedId] = useState(null)
   const [aiReady, setAiReady] = useState(true)
+  const [value, setValue] = useState(null)
   const cancelled = useRef(false)
 
   useEffect(() => {
@@ -160,6 +161,7 @@ export default function Scan() {
         acquisitionMethod: draft.acquisitionMethod,
         source: draft.source || null,
         estimatedValue: num(draft.estimatedValue),
+        valuation: value?.status === 'ok' ? value.data : null,
         notes: null,
         aiFields: draft.confidence,
       },
@@ -169,7 +171,38 @@ export default function Scan() {
     setStep('success')
   }
 
+  // Fired when the match is accepted so the answer is ready by the time the
+  // user reaches the details step — the search takes a few seconds.
+  const runValueLookup = useCallback(
+    async (fields, components) => {
+      setValue({ status: 'loading' })
+      try {
+        const present = components.filter((c) => c.present).map((c) => c.name)
+        const data = await lookupValue({
+          title: fields.title,
+          platform: fields.platform,
+          region: fields.region,
+          edition: fields.edition,
+          type: fields.type,
+          completeness: present.length
+            ? `includes ${present.join(', ')}`
+            : 'unknown',
+        })
+        if (!cancelled.current) setValue({ status: 'ok', data })
+      } catch (err) {
+        if (!cancelled.current) setValue({ status: 'error', message: err.message, code: err.code })
+      }
+    },
+    [],
+  )
+
+  const acceptMatch = () => {
+    setStep('components')
+    if (aiReady) runValueLookup(draft.fields, draft.components)
+  }
+
   const restart = () => {
+    setValue(null)
     setDraft(emptyDraft())
     setSavedId(null)
     setError(null)
@@ -195,7 +228,7 @@ export default function Scan() {
           />
         )
       case 'result':
-        return <ResultStep draft={draft} onBack={back} onAccept={() => setStep('components')} onReject={toManualForm} />
+        return <ResultStep draft={draft} onBack={back} onAccept={acceptMatch} onReject={toManualForm} />
       case 'components':
         return (
           <ComponentsStep
@@ -218,6 +251,9 @@ export default function Scan() {
             onBack={back}
             onNext={() => setStep('location')}
             onSaveForLater={toManualForm}
+            value={value}
+            onUseValue={(amount) => update({ estimatedValue: String(amount) })}
+            onRetryValue={() => runValueLookup(draft.fields, draft.components)}
           />
         )
       case 'location':
@@ -273,7 +309,7 @@ export default function Scan() {
           </>
         )
     }
-  }, [step, draft, error, busy, saving, savedId, aiReady])
+  }, [step, draft, error, busy, saving, savedId, aiReady, value])
 
   return <div className="pb-4">{content}</div>
 }

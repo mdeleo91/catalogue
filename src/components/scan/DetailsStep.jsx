@@ -1,9 +1,10 @@
 import { Chip, StepFooter, StepHeader } from './ScanChrome'
+import ValueCard from './ValueCard'
 import { Field, inputCls } from '../ui'
 import { ACQUISITION_METHODS, COMPLETENESS_STATES, CONDITIONS } from '../../lib/constants'
 
 // Screen 5. Everything here is what the AI cannot know from a photograph.
-export default function DetailsStep({ draft, onChange, onNext, onBack, onSaveForLater }) {
+export default function DetailsStep({ draft, onChange, onNext, onBack, onSaveForLater, value, onUseValue, onRetryValue }) {
   return (
     <div>
       <StepHeader
@@ -89,6 +90,21 @@ export default function DetailsStep({ draft, onChange, onNext, onBack, onSaveFor
           />
         </Field>
       </div>
+
+      {value && (
+        <div className="mt-3">
+          <ValueCard
+            state={value}
+            onUse={onUseValue}
+            onRetry={onRetryValue}
+            applied={
+              value.status === 'ok' &&
+              value.data?.estimate != null &&
+              Number(draft.estimatedValue) === value.data.estimate
+            }
+          />
+        </div>
+      )}
 
       <StepFooter primary="Continue" onPrimary={onNext} />
     </div>

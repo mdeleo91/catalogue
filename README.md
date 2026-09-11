@@ -95,6 +95,7 @@ member's usage for the day.
 | `ANTHROPIC_API_KEY` | The key every scan runs on. Unset means scanning is off. |
 | `ANTHROPIC_MODEL` | Override the model. Default `claude-opus-5`. |
 | `AI_DAILY_SCAN_LIMIT` | Scans per member per day. Default 100. |
+| `AI_VALUE_LOOKUP` | Set to `off` to turn off the market-value search. Default on. |
 
 ### What a scan costs, and keeping it bounded
 
@@ -128,6 +129,42 @@ existing project; `schema.sql` already includes it for fresh installs.
 
 If you plan a long cataloging session, raise `AI_DAILY_SCAN_LIMIT` — at the
 default of 100 a day, a 1,000-item collection takes ten days.
+
+### Estimated value, with sources
+
+After you accept a match, Catalog looks up what that exact release is going
+for. It runs while you're ticking off components, so the answer is waiting by
+the time you reach the details step rather than making you sit through it.
+
+The number is **searched, not remembered**. A model reciting a price from
+training data would be confidently out of date — collectible prices move — so
+this uses Claude's `web_search` tool and asks specifically for *sold* prices
+over asking prices. You get an estimate, a typical low–high range, and the
+listings behind it: each with its price, its date, and whether it's a
+completed sale, a current asking price, or a price-guide figure. Tap **Use
+$X** to accept it as the item's estimated value; the sources stay on the item
+page under *Where this value came from*.
+
+Completeness is part of the question, not an afterthought — a loose cartridge
+and a complete-in-box copy are different markets, so the lookup is told which
+components you ticked and prices that configuration.
+
+**Every citation is verified.** The URLs the model cites are checked against
+the URLs the search actually returned; anything that doesn't match is dropped
+rather than displayed as evidence, and if more than half of them fail the
+check the result is marked low confidence. A fabricated source is the one
+failure mode that would make this worse than useless, so it can't reach the
+screen.
+
+Web search is billed separately from tokens — about **$10 per 1,000
+searches** — and a lookup makes up to four. That works out to roughly
+**$0.05 per item on top of the ~$0.032 scan**, so cataloging with values on
+costs a bit over twice as much. Lookups count against the same
+`AI_DAILY_SCAN_LIMIT`. Set `AI_VALUE_LOOKUP=off` to turn it off and keep
+scanning; the details step then just shows a plain estimated-value field.
+
+Prices are for planning. They are not an appraisal and not a guaranteed
+resale price.
 
 ## Installing on a phone
 
@@ -212,10 +249,12 @@ build or debug locally instead of via CI.
 - **Scan** — photograph an item (multiple angles of the same physical artifact
   supported). Claude vision identifies the release and pre-fills metadata with
   **per-field confidence scores**; anything below high confidence is flagged for
-  user confirmation, never silently treated as fact. Identification runs on the
-  server, so no one signing in has to obtain or paste an API key. If it is
-  unconfigured or unavailable, the same flow continues as guided manual entry
-  with the photos attached.
+  user confirmation, never silently treated as fact. Accepting a match kicks off
+  a web-searched **market value lookup** with the listings it came from, priced
+  for the components you actually have. Identification runs on the server, so
+  no one signing in has to obtain or paste an API key. If it is unconfigured or
+  unavailable, the same flow continues as guided manual entry with the photos
+  attached.
 - **Collection** — browse, full-text search (titles, publishers, franchises, even
   location paths), filter by type/platform/condition/completeness, and sort.
 - **Items as physical artifacts** — per-item component checklists (cartridge, box,
@@ -252,15 +291,17 @@ build or debug locally instead of via CI.
   to small JPEG data URLs on-device (`src/lib/image.js`).
 - **Auth:** `src/lib/auth.jsx` + `src/pages/SignIn.jsx` /
   `src/pages/CollectionSetup.jsx` — Supabase email/password accounts, then
-  create-or-join a shared collection via an invite code (server-side RPCs). The
-  Anthropic API key stays per-device in localStorage, never in the database.
+  create-or-join a shared collection via an invite code (server-side RPCs).
 - **AI:** `api/identify.js` is a Vercel serverless function that calls Claude
   with a key held in the server environment. `src/lib/ai.js` posts photos to
   it using the caller's existing Supabase session; the function verifies that
   session and collection membership, counts the scan against the caller's
-  daily quota, and only then spends anything. `api/ai-status.js` reports
-  whether scanning is on and the caller's usage. No API key reaches the
-  browser or the APK, and the client bundle carries no AI SDK.
+  daily quota, and only then spends anything. `api/value.js` is the same shape
+  for market value, adding Anthropic's `web_search` server tool and a
+  verification pass that drops any cited URL the search did not actually
+  return. `api/ai-status.js` reports whether scanning is on and the caller's
+  usage. No API key reaches the browser or the APK, and the client bundle
+  carries no AI SDK.
 
 - **Backend:** `supabase/schema.sql` — collections and members are relational;
   collection content (items, locations, history, activity, wishlist) is stored

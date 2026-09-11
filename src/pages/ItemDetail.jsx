@@ -166,6 +166,46 @@ export default function ItemDetail() {
         )}
       </Card>
 
+      {item.valuation?.sources?.length > 0 && (
+        <>
+          <SectionTitle>Where this value came from</SectionTitle>
+          <Card className="space-y-2">
+            <div className="flex items-baseline justify-between text-sm">
+              <span className="text-ink-2">
+                {item.valuation.low != null && item.valuation.high != null
+                  ? `Range ${currency(item.valuation.low)}–${currency(item.valuation.high)}`
+                  : 'Searched estimate'}
+              </span>
+              <span className="text-xs text-ink-3">searched {item.valuation.asOf}</span>
+            </div>
+            {item.valuation.note && <p className="text-xs text-ink-2">{item.valuation.note}</p>}
+            <div className="space-y-1 border-t border-line pt-2">
+              {item.valuation.sources.map((s, i) => (
+                <a
+                  key={i}
+                  href={s.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-baseline justify-between gap-2 text-xs"
+                >
+                  <span className="min-w-0 flex-1 truncate text-accent">
+                    {s.label}
+                    {s.date ? <span className="text-ink-3"> · {s.date}</span> : null}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-ink-2">
+                    {s.price != null ? currency(s.price) : '—'}
+                    <span className="ml-1 text-[10px] uppercase text-ink-3">{s.kind}</span>
+                  </span>
+                </a>
+              ))}
+            </div>
+            <p className="text-[11px] text-ink-3">
+              Public listings at the time of the search — an estimate, not an appraisal.
+            </p>
+          </Card>
+        </>
+      )}
+
       {duplicates.length > 0 && (
         <>
           <SectionTitle>Other copies ({duplicates.length})</SectionTitle>
