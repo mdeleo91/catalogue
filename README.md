@@ -95,7 +95,7 @@ member's usage for the day.
 | `ANTHROPIC_API_KEY` | The key every scan runs on. Unset means scanning is off. |
 | `ANTHROPIC_MODEL` | Override the model. Default `claude-opus-5`. |
 | `AI_DAILY_SCAN_LIMIT` | Scans per member per day. Default 100. |
-| `AI_VALUE_LOOKUP` | Set to `off` to turn off the market-value search. Default on. |
+| `AI_VALUE_LOOKUP` | Set to `off` to turn off the market-value search. Default on. See below — it is the costly half. |
 
 ### What a scan costs, and keeping it bounded
 
@@ -138,30 +138,58 @@ the time you reach the details step rather than making you sit through it.
 
 The number is **searched, not remembered**. A model reciting a price from
 training data would be confidently out of date — collectible prices move — so
-this uses Claude's `web_search` tool and asks specifically for *sold* prices
-over asking prices. You get an estimate, a typical low–high range, and the
-listings behind it: each with its price, its date, and whether it's a
-completed sale, a current asking price, or a price-guide figure. Tap **Use
-$X** to accept it as the item's estimated value; the sources stay on the item
-page under *Where this value came from*.
+this searches the web and asks specifically for *sold* prices over asking
+prices. Crucially it can also **open the pages it finds**: the price table on
+a guide site and a row of completed sales live in the page body, not in a
+search snippet, so a lookup limited to snippets reads a lot of navigation text
+and comes back with nothing.
 
-Completeness is part of the question, not an afterthought — a loose cartridge
-and a complete-in-box copy are different markets, so the lookup is told which
-components you ticked and prices that configuration.
+**Estimated value is not a field you fill in.** It's a market fact about a
+specific copy, so the lookup asks what the market pays at each level of
+completeness — loose, boxed, complete — and the app positions *your* copy
+inside that range from the condition and completeness you picked. Tap through
+Mint → Poor and the number moves immediately, with no second search. You can
+still override it, but typing is the fallback, not the default way in.
+
+Pricing by range rather than by single figure is also what makes the timing
+work: the lookup fires when you accept the match, before you've said what
+condition the copy is in, and one search covers every answer you might give.
 
 **Every citation is verified.** The URLs the model cites are checked against
-the URLs the search actually returned; anything that doesn't match is dropped
-rather than displayed as evidence, and if more than half of them fail the
-check the result is marked low confidence. A fabricated source is the one
+the pages it actually searched or fetched; anything that doesn't match is
+dropped rather than displayed as evidence, and if more than half of them fail
+the check the result is marked low confidence. A fabricated source is the one
 failure mode that would make this worse than useless, so it can't reach the
-screen.
+screen. Ranges that come back malformed — inverted, negative, non-numeric —
+are discarded rather than fed into the arithmetic.
 
-Web search is billed separately from tokens — about **$10 per 1,000
-searches** — and a lookup makes up to four. That works out to roughly
-**$0.05 per item on top of the ~$0.032 scan**, so cataloging with values on
-costs a bit over twice as much. Lookups count against the same
-`AI_DAILY_SCAN_LIMIT`. Set `AI_VALUE_LOOKUP=off` to turn it off and keep
-scanning; the details step then just shows a plain estimated-value field.
+When the comps genuinely don't cover what you have, it says so instead of
+inventing a figure: sold data for whole copies tells you nothing about what a
+loose manual is worth. Where it has to price against a neighbouring market it
+labels that too.
+
+| Variable | Purpose |
+|---|---|
+| `AI_VALUE_LOOKUP` | `off` disables the lookup; scanning is unaffected. |
+| `ANTHROPIC_VALUE_MODEL` | Run lookups on a cheaper model than scans. Defaults to `ANTHROPIC_MODEL`. |
+| `AI_VALUE_MAX_SEARCHES` | Searches per lookup. Default 8. |
+| `AI_VALUE_MAX_FETCHES` | Pages opened per lookup. Default 4. |
+| `AI_VALUE_MAX_CONTENT_TOKENS` | Cap on how much of each page enters context. Default 6,000. |
+
+**Cost.** This is the expensive part of the app. Web search is billed on top
+of tokens at about **$10 per 1,000 searches**, and fetched page content is
+billed as input tokens — up to 6,000 per page, resent on each continuation
+turn. At the defaults a lookup lands around **$0.15–0.35**, against ~$0.032
+for a scan alone, so values roughly quintuple the per-item cost.
+
+Three dials, in the order worth reaching for: set `ANTHROPIC_VALUE_MODEL` to
+`claude-sonnet-5` (the lookup is search-and-summarize, not the vision work the
+scan does, and Sonnet is 2.5× cheaper per token); lower
+`AI_VALUE_MAX_CONTENT_TOKENS`, which is what actually drives the token half of
+the bill; or lower `AI_VALUE_MAX_SEARCHES`. Cutting the search budget too far
+is what produces "no pricing found" — that failure is what the defaults above
+are set to avoid. Lookups count against the same `AI_DAILY_SCAN_LIMIT`, and
+the Anthropic console spend cap remains the real backstop.
 
 Prices are for planning. They are not an appraisal and not a guaranteed
 resale price.

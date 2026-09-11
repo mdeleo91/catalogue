@@ -1,103 +1,176 @@
+import { useEffect, useState } from 'react'
 import { currency } from '../../lib/constants'
+import { valueFor } from '../../lib/valuation'
+import { inputCls } from '../ui'
 
 const TONE = { high: 'text-good', medium: 'text-warn', low: 'text-ink-3' }
 
-// Shows a searched valuation with the listings it came from, so the number can
-// be judged rather than taken on faith.
-export default function ValueCard({ state, onUse, onRetry, applied }) {
+// The estimated value, derived rather than typed.
+//
+// A collectible's value is a market fact about a specific copy, so this is not
+// a blank box to guess into — it is the searched range, positioned by the
+// condition and completeness the user picked, recalculated as they change
+// them. Typing a number is the fallback for when the search finds nothing,
+// not the default way in.
+export default function ValueCard({ state, condition, completeness, value, onChange, onRetry }) {
+  const [manual, setManual] = useState(false)
+  const data = state?.status === 'ok' ? state.data : null
+  const priced = data ? valueFor(data, { condition, completeness }) : null
+  const derived = priced?.amount ?? null
+
+  // Keep the stored value in step with the derived one as condition and
+  // completeness change, unless the user has deliberately taken it over.
+  useEffect(() => {
+    if (manual || derived == null) return
+    onChange(String(derived))
+  }, [derived, manual])
+
   if (state?.status === 'loading') {
     return (
-      <div className="rounded-xl border border-line bg-card p-3 text-xs text-ink-3">
-        Checking recent sales and current listings…
-      </div>
+      <Shell>
+        <p className="text-xs text-ink-3">Checking recent sales and current listings…</p>
+      </Shell>
     )
   }
 
-  // Switched off deployment-wide: say nothing rather than show an error.
-  if (state?.status === 'error' && state.code === 'disabled') return null
+  // Switched off deployment-wide: fall back to a plain field rather than
+  // explaining an error the user cannot act on.
+  if (state?.status === 'error' && state.code === 'disabled') {
+    return <ManualEntry value={value} onChange={onChange} />
+  }
 
   if (state?.status === 'error') {
     return (
-      <div className="rounded-xl border border-warn/40 bg-warn/10 p-3 text-xs text-warn">
-        {state.message}
-        <button onClick={onRetry} className="ml-1 font-semibold underline">Try again</button>
-      </div>
+      <Shell>
+        <p className="text-xs text-warn">
+          {state.message}{' '}
+          <button onClick={onRetry} className="font-semibold underline">
+            Try again
+          </button>
+        </p>
+        <ManualEntry value={value} onChange={onChange} bare />
+      </Shell>
     )
   }
 
-  const v = state?.status === 'ok' ? state.data : null
-  if (!v) return null
+  if (!data) return <ManualEntry value={value} onChange={onChange} />
 
-  if (v.estimate == null) {
+  // Searched, but nothing usable came back for this configuration.
+  if (!priced || priced.amount == null) {
     return (
-      <div className="rounded-xl border border-line bg-card p-3 text-xs text-ink-3">
-        No reliable pricing found for this item. {v.note} Enter a value yourself if you have one.
-      </div>
+      <Shell>
+        <div className="text-xs text-ink-3">
+          {priced?.reason || 'No reliable pricing found for this item.'} {data.note}
+        </div>
+        <ManualEntry value={value} onChange={onChange} bare />
+        <Sources data={data} />
+      </Shell>
     )
   }
+
+  const shown = manual && value !== '' ? Number(value) : priced.amount
 
   return (
-    <div className="rounded-xl border border-line bg-card p-3">
+    <Shell>
       <div className="flex items-baseline justify-between">
         <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">
-          Market value
+          Estimated value
         </span>
-        <span className={`text-[11px] font-semibold ${TONE[v.confidence] || 'text-ink-3'}`}>
-          {v.confidence} confidence
+        <span className={`text-[11px] font-semibold ${TONE[data.confidence] || 'text-ink-3'}`}>
+          {data.confidence} confidence
         </span>
       </div>
 
       <div className="mt-1 flex items-baseline gap-2">
-        <span className="text-2xl font-bold tabular-nums">{currency(v.estimate)}</span>
-        {v.low != null && v.high != null && (
-          <span className="text-xs text-ink-3">
-            range {currency(v.low)}–{currency(v.high)}
-          </span>
-        )}
+        <span className="text-3xl font-bold tabular-nums">{currency(shown)}</span>
+        <span className="text-xs text-ink-3">
+          of {currency(priced.low)}–{currency(priced.high)}
+        </span>
       </div>
 
-      {v.completeness && (
-        <div className="text-[11px] text-ink-3">priced as {v.completeness.toLowerCase()}</div>
-      )}
-      {v.note && <p className="mt-1 text-xs text-ink-2">{v.note}</p>}
+      <p className="mt-0.5 text-[11px] text-ink-3">
+        {priced.condition}, {priced.basis}
+        {priced.approximate && ' — closest market found, not an exact match'}
+      </p>
 
-      {v.sources?.length > 0 && (
-        <div className="mt-2 space-y-1 border-t border-line pt-2">
-          {v.sources.map((s, i) => (
-            <a
-              key={i}
-              href={s.url}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-baseline justify-between gap-2 text-xs"
-            >
-              <span className="min-w-0 flex-1 truncate text-accent">
-                {s.label}
-                {s.date ? <span className="text-ink-3"> · {s.date}</span> : null}
-              </span>
-              <span className="shrink-0 tabular-nums text-ink-2">
-                {s.price != null ? currency(s.price) : '—'}
-                <span className="ml-1 text-[10px] uppercase text-ink-3">{s.kind}</span>
-              </span>
-            </a>
-          ))}
+      {data.note && <p className="mt-2 text-xs text-ink-2">{data.note}</p>}
+
+      <Sources data={data} />
+
+      {manual ? (
+        <div className="mt-3">
+          <ManualEntry value={value} onChange={onChange} bare />
+          <button
+            onClick={() => {
+              setManual(false)
+              onChange(String(priced.amount))
+            }}
+            className="mt-1 text-xs font-semibold text-accent"
+          >
+            Use the searched value instead
+          </button>
         </div>
+      ) : (
+        <button
+          onClick={() => setManual(true)}
+          className="mt-3 text-xs font-semibold text-ink-3 underline"
+        >
+          Set a different value
+        </button>
       )}
-
-      <button
-        onClick={() => onUse(v.estimate)}
-        disabled={applied}
-        className={`mt-3 w-full rounded-lg py-2 text-sm font-semibold ${
-          applied ? 'bg-good/15 text-good' : 'bg-accent text-white'
-        }`}
-      >
-        {applied ? `✓ Using ${currency(v.estimate)}` : `Use ${currency(v.estimate)} as estimated value`}
-      </button>
 
       <p className="mt-2 text-[11px] text-ink-3">
-        Searched {v.asOf} from public listings — an estimate for planning, not an appraisal or a
-        guaranteed resale price.
+        Searched {data.asOf} from public listings, then adjusted for this copy's condition — an
+        estimate for planning, not an appraisal or a guaranteed resale price.
       </p>
+    </Shell>
+  )
+}
+
+function Shell({ children }) {
+  return <div className="rounded-xl border border-line bg-card p-3">{children}</div>
+}
+
+function Sources({ data }) {
+  if (!data.sources?.length) return null
+  return (
+    <div className="mt-2 space-y-1 border-t border-line pt-2">
+      {data.sources.map((s, i) => (
+        <a
+          key={i}
+          href={s.url}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-baseline justify-between gap-2 text-xs"
+        >
+          <span className="min-w-0 flex-1 truncate text-accent">
+            {s.label}
+            {s.date ? <span className="text-ink-3"> · {s.date}</span> : null}
+          </span>
+          <span className="shrink-0 tabular-nums text-ink-2">
+            {s.price != null ? currency(s.price) : '—'}
+            <span className="ml-1 text-[10px] uppercase text-ink-3">{s.kind}</span>
+          </span>
+        </a>
+      ))}
     </div>
   )
+}
+
+function ManualEntry({ value, onChange, bare }) {
+  const field = (
+    <>
+      <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-3">
+        Estimated value ($)
+      </label>
+      <input
+        className={inputCls}
+        type="number"
+        inputMode="decimal"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </>
+  )
+  return bare ? <div className="mt-2">{field}</div> : <Shell>{field}</Shell>
 }

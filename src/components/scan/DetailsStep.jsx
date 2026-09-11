@@ -4,7 +4,7 @@ import { Field, inputCls } from '../ui'
 import { ACQUISITION_METHODS, COMPLETENESS_STATES, CONDITIONS } from '../../lib/constants'
 
 // Screen 5. Everything here is what the AI cannot know from a photograph.
-export default function DetailsStep({ draft, onChange, onNext, onBack, onSaveForLater, value, onUseValue, onRetryValue }) {
+export default function DetailsStep({ draft, onChange, onNext, onBack, onSaveForLater, value, onRetryValue }) {
   return (
     <div>
       <StepHeader
@@ -80,31 +80,19 @@ export default function DetailsStep({ draft, onChange, onNext, onBack, onSaveFor
             onChange={(e) => onChange({ source: e.target.value })}
           />
         </Field>
-        <Field label="Estimated value ($)">
-          <input
-            className={inputCls}
-            type="number"
-            inputMode="decimal"
-            value={draft.estimatedValue}
-            onChange={(e) => onChange({ estimatedValue: e.target.value })}
-          />
-        </Field>
       </div>
 
-      {value && (
-        <div className="mt-3">
-          <ValueCard
-            state={value}
-            onUse={onUseValue}
-            onRetry={onRetryValue}
-            applied={
-              value.status === 'ok' &&
-              value.data?.estimate != null &&
-              Number(draft.estimatedValue) === value.data.estimate
-            }
-          />
-        </div>
-      )}
+      <div className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-ink-3">
+        Value
+      </div>
+      <ValueCard
+        state={value}
+        condition={draft.condition}
+        completeness={draft.completeness}
+        value={draft.estimatedValue}
+        onChange={(v) => onChange({ estimatedValue: v })}
+        onRetry={onRetryValue}
+      />
 
       <StepFooter primary="Continue" onPrimary={onNext} />
     </div>

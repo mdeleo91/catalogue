@@ -172,9 +172,7 @@ export default function ItemDetail() {
           <Card className="space-y-2">
             <div className="flex items-baseline justify-between text-sm">
               <span className="text-ink-2">
-                {item.valuation.low != null && item.valuation.high != null
-                  ? `Range ${currency(item.valuation.low)}–${currency(item.valuation.high)}`
-                  : 'Searched estimate'}
+                {item.valuation.priced || 'Searched estimate'}
               </span>
               <span className="text-xs text-ink-3">searched {item.valuation.asOf}</span>
             </div>

@@ -87,7 +87,7 @@ export async function identifyItem(photoDataUrls) {
 // Current market value, searched rather than recalled. Returns null when the
 // deployment has scanning switched off; throws AiUnavailableError otherwise so
 // the caller can show why.
-export async function lookupValue({ title, platform, region, edition, completeness, type }) {
+export async function lookupValue({ title, platform, region, edition, present, type }) {
   const token = await accessToken()
   if (!token) throw new AiUnavailableError('Sign in to look up market value.', 'signed_out')
 
@@ -96,7 +96,7 @@ export async function lookupValue({ title, platform, region, edition, completene
     res = await fetch(`${API_BASE}/api/value`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify({ title, platform, region, edition, completeness, type }),
+      body: JSON.stringify({ title, platform, region, edition, present, type }),
     })
   } catch {
     throw new AiUnavailableError('Could not reach the value service.', 'network')

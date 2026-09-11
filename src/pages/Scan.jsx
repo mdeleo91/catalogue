@@ -66,7 +66,13 @@ export default function Scan() {
   const cancelled = useRef(false)
 
   useEffect(() => {
-    aiSignedIn().then(setAiReady)
+    // Reset on mount, not just set on unmount: React invokes effects twice in
+    // development, and a flag that is only ever set to true stays true after
+    // the first cleanup — silently discarding every result that arrives after.
+    cancelled.current = false
+    aiSignedIn().then((ok) => {
+      if (!cancelled.current) setAiReady(ok)
+    })
     return () => {
       cancelled.current = true
     }
@@ -172,21 +178,20 @@ export default function Scan() {
   }
 
   // Fired when the match is accepted so the answer is ready by the time the
-  // user reaches the details step — the search takes a few seconds.
+  // user reaches the details step — the search takes a few seconds. It returns
+  // ranges per completeness rather than one figure, so the condition and
+  // completeness chosen later reprice it without searching again.
   const runValueLookup = useCallback(
     async (fields, components) => {
       setValue({ status: 'loading' })
       try {
-        const present = components.filter((c) => c.present).map((c) => c.name)
         const data = await lookupValue({
           title: fields.title,
           platform: fields.platform,
           region: fields.region,
           edition: fields.edition,
           type: fields.type,
-          completeness: present.length
-            ? `includes ${present.join(', ')}`
-            : 'unknown',
+          present: components.filter((c) => c.present).map((c) => c.name),
         })
         if (!cancelled.current) setValue({ status: 'ok', data })
       } catch (err) {
@@ -252,7 +257,6 @@ export default function Scan() {
             onNext={() => setStep('location')}
             onSaveForLater={toManualForm}
             value={value}
-            onUseValue={(amount) => update({ estimatedValue: String(amount) })}
             onRetryValue={() => runValueLookup(draft.fields, draft.components)}
           />
         )
