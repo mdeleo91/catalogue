@@ -91,16 +91,29 @@ lives in Supabase.)
    The build fails fast with a clear message if these are missing, rather than
    silently shipping an APK stuck in offline demo mode.
 2. Go to the **Actions** tab → **Build Android APK** → **Run workflow**.
-3. When it finishes (~5 minutes), open the run and download the
-   **catalog-apk** artifact from the Summary page. It is a zip containing
-   `catalog-<build number>.apk`.
-4. Get the APK onto the phone — email it to yourself, drop it in Drive, or USB
-   transfer — then tap it. Android will ask you to allow installing unknown
-   apps from whatever app you opened it with; that prompt is expected for any
-   app not installed from the Play Store.
+3. When it finishes (~5 minutes) it publishes a **GitHub Release** tagged
+   `v1.0.<build number>` with `catalog.apk` attached. From then on the app
+   itself links to it — open the site on your phone and use **Settings →
+   Android app → Download APK**. (The release page and the run's
+   `catalog-apk` artifact both work too.)
+4. Tap the downloaded file to install. Android will ask you to allow
+   installing unknown apps from whatever app you opened it with; that prompt
+   is expected for any app not installed from the Play Store.
 
-Pushes that touch the app build an APK automatically, so the newest artifact
-is always current.
+Pushes that touch the app publish a new release automatically, so the
+download link is always current.
+
+### Updating
+
+The version number flows from the build into the web app, the APK, and the
+release tag, so the installed app can compare them. **Settings → App
+version** checks the latest release on open: when there's a newer build it
+shows a *Download update* button, otherwise it confirms you're current.
+Installing over the existing app keeps your collection — that lives in
+Supabase, not on the phone.
+
+The same card on the website shows a *Download APK* button instead, since
+there's nothing installed to update.
 
 **About signing:** these are debug-signed APKs, which is fine for sideloading
 onto your own devices. The workflow caches the signing key so a new build

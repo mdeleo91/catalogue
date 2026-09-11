@@ -1,8 +1,8 @@
 name: Build Android APK
 
-# Produces an installable APK as a downloadable artifact. Run it from the
-# Actions tab (Run workflow), or let it run automatically on pushes that
-# touch the app.
+# Builds an installable APK and publishes it as a GitHub Release, so the app's
+# Settings screen can link straight to it. Run from the Actions tab, or let it
+# run on pushes that touch the app.
 on:
   workflow_dispatch:
   push:
@@ -14,6 +14,9 @@ on:
       - 'package*.json'
       - 'capacitor.config.json'
       - '.github/workflows/android.yml'
+
+permissions:
+  contents: write # needed to publish the release
 
 jobs:
   build:
@@ -65,10 +68,24 @@ jobs:
             exit 1
           fi
 
+      # One version number drives the web build, the APK, and the release tag,
+      # so the in-app update check can compare them.
+      - name: Determine version
+        id: version
+        run: echo "value=1.0.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp version into the Android project
+        run: |
+          sed -i "s/versionCode 1$/versionCode ${{ github.run_number }}/" android/app/build.gradle
+          sed -i "s/versionName \"1.0\"$/versionName \"${{ steps.version.outputs.value }}\"/" android/app/build.gradle
+          grep -E "versionCode|versionName" android/app/build.gradle
+
       - name: Build web app
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY || vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_APP_VERSION: ${{ steps.version.outputs.value }}
+          VITE_UPDATE_REPO: ${{ github.repository }}
         run: npm run build
 
       - name: Copy web build into the Android project
@@ -78,15 +95,32 @@ jobs:
         run: ./gradlew assembleDebug --no-daemon
         working-directory: android
 
-      - name: Name the APK with the build number
+      # The asset name must stay constant for the
+      # /releases/latest/download/catalog.apk link the app uses.
+      - name: Collect APK
         run: |
           mkdir -p out
-          cp android/app/build/outputs/apk/debug/app-debug.apk "out/catalog-${{ github.run_number }}.apk"
+          cp android/app/build/outputs/apk/debug/app-debug.apk out/catalog.apk
           ls -lh out/
 
       - uses: actions/upload-artifact@v4
         with:
           name: catalog-apk
-          path: out/*.apk
+          path: out/catalog.apk
           if-no-files-found: error
           retention-days: 90
+
+      - name: Publish release
+        if: github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          gh release create "v$VERSION" out/catalog.apk \
+            --title "Catalog $VERSION" \
+            --target "${{ github.sha }}" \
+            --notes "Android build $VERSION, built from \`${GITHUB_SHA:0:7}\`.
+
+          Install: download \`catalog.apk\` below on your phone and tap it. If Catalog is already installed, this installs over it and your collection is untouched.
+
+          The app's Settings screen links here automatically."

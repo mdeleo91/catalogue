@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button, Card, Field, SectionTitle, inputCls } from '../components/ui'
+import UpdateCard from '../components/UpdateCard'
 import { useMaybeAuth } from '../lib/auth'
 import { useStore } from '../lib/store'
 
@@ -113,6 +114,8 @@ export default function Settings() {
           </p>
         </>
       )}
+
+      <UpdateCard />
 
       <SectionTitle>AI identification</SectionTitle>
       <Card className="space-y-2">
