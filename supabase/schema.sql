@@ -89,6 +89,16 @@ create table user_ai_keys (
   updated_at timestamptz not null default now()
 );
 
+-- Daily scan quota for the shared AI key. Members scanning on their own key
+-- are spending their own money and are not limited.
+
+create table ai_usage (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  day date not null default (now() at time zone 'utc')::date,
+  scans integer not null default 0,
+  primary key (user_id, day)
+);
+
 -- ---------------------------------------------------------------------------
 -- Row-level security
 -- ---------------------------------------------------------------------------
@@ -101,6 +111,7 @@ alter table location_history enable row level security;
 alter table activity enable row level security;
 alter table wishlist enable row level security;
 alter table user_ai_keys enable row level security;
+alter table ai_usage enable row level security;
 
 create or replace function is_member(cid uuid) returns boolean
 language sql stable security definer set search_path = public as $$
@@ -131,6 +142,11 @@ create policy member_all_wishlist on wishlist for all
 
 create policy own_ai_key on user_ai_keys for all
   using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Read-only: the counter is only ever changed by record_ai_scan(), so a
+-- client cannot reset or fake its own usage.
+create policy own_ai_usage_read on ai_usage
+  for select using (user_id = auth.uid());
 
 -- ---------------------------------------------------------------------------
 -- RPCs: create a collection, or join one with its invite code.
@@ -175,6 +191,26 @@ begin
     values (v_id, auth.uid(), 'editor', coalesce(nullif(trim(p_display_name), ''), 'Collector'))
     on conflict (collection_id, user_id) do nothing;
   return json_build_object('collection_id', v_id);
+end;
+$$;
+
+-- Counts one scan against the caller's daily quota and returns the new total.
+-- Takes no limit argument on purpose: the ceiling is enforced by the server
+-- against its own configuration, so calling this directly can only increment
+-- your own counter, never raise your own allowance.
+create or replace function record_ai_scan() returns integer
+language plpgsql security definer set search_path = public as $$
+declare
+  v_count integer;
+begin
+  if auth.uid() is null then
+    raise exception 'not signed in';
+  end if;
+  insert into ai_usage (user_id, day, scans)
+    values (auth.uid(), (now() at time zone 'utc')::date, 1)
+  on conflict (user_id, day) do update set scans = ai_usage.scans + 1
+  returning scans into v_count;
+  return v_count;
 end;
 $$;
 

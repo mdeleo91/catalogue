@@ -106,6 +106,39 @@ Leave it unset and everyone simply brings their own.
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | Optional shared fallback key. |
 | `AI_PROVIDER` | Only consulted when both shared keys are set: `anthropic` or `openai`. |
 | `ANTHROPIC_MODEL` / `OPENAI_MODEL` | Override the shared key's model. Per-user keys set their own model in Settings. |
+| `AI_DAILY_SCAN_LIMIT` | Scans per member per day on the shared key. Default 100. |
+
+### What a scan costs, and keeping it bounded
+
+Photos are capped at 640px, so a one-photo scan is roughly 690 input tokens
+and 350–1,150 output tokens depending on how much the model reasons. Adding
+more photos costs about 10% each — the text and reasoning dominate, not the
+images.
+
+| Model | Per scan | Per 1,000 scans |
+|---|---|---|
+| GPT-6 Astra | ~$0.064 | ~$64 |
+| Claude Opus 5 *(default)* | ~$0.032 | ~$32 |
+| Claude Sonnet 5 | ~$0.011 | ~$11 |
+| Claude Haiku 4.5 | ~$0.0024 | ~$2.44 |
+
+Normal use is cheap — cataloging a 500-item collection costs about $16 on the
+default model. The real exposure is a loop hammering the endpoint, which could
+run to roughly $130/hour unchecked. Three things bound it:
+
+1. **Per-member daily cap.** Scans on the shared key are counted and refused
+   past `AI_DAILY_SCAN_LIMIT`. The counter is server-enforced — members can
+   read their own usage but the only thing that can change it is a
+   `security definer` function that increments the caller's own row, so the
+   limit cannot be raised from the client. Members using their own key are
+   exempt, since they are spending their own money.
+2. **Membership.** The endpoint refuses anyone who is not in a collection.
+3. **A provider spend cap.** Set a monthly limit in the Anthropic or OpenAI
+   console. This is the only backstop that holds if something in the app
+   itself is wrong, so set it regardless.
+
+Run `supabase/add-ai-usage-limit.sql` once to create the counter on an
+existing project; `schema.sql` already includes it for fresh installs.
 
 Defaults are `claude-opus-5` and `gpt-6-astra`; roughly a few cents per scan.
 `api/identify.js` caps each request at 6 photos and 4 MB and refuses anyone who

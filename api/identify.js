@@ -1,8 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import {
-  MAX_IMAGES, MAX_TOTAL_BYTES, NOT_CONFIGURED,
-  authenticate, cors, resolveCredential,
+  DAILY_SCAN_LIMIT, MAX_IMAGES, MAX_TOTAL_BYTES, NOT_CONFIGURED,
+  authenticate, consumeScan, cors, resolveCredential,
 } from './_lib.js'
 
 // Server-side AI identification.
@@ -71,7 +71,22 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: NOT_CONFIGURED, code: 'not_configured' })
   }
 
-  // 4. Ask the model.
+  // 4. Quota, but only on the shared key — someone scanning on their own key
+  //    is spending their own money. Counted before the provider call so a
+  //    runaway loop is stopped rather than merely recorded.
+  if (cred.source === 'app') {
+    const { count, limited } = await consumeScan(auth.supabase)
+    if (limited) {
+      return res.status(429).json({
+        error: `Daily scan limit reached (${DAILY_SCAN_LIMIT} on the shared key). It resets at midnight UTC — or add your own API key under Settings to scan without this limit.`,
+        code: 'daily_limit',
+        count,
+        limit: DAILY_SCAN_LIMIT,
+      })
+    }
+  }
+
+  // 5. Ask the model.
   try {
     const text =
       cred.provider === 'anthropic' ? await askClaude(images, cred) : await askOpenAI(images, cred)

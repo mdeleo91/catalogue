@@ -98,5 +98,33 @@ export async function resolveCredential(supabase) {
   }
 }
 
+// Daily ceiling on scans that run on the SHARED key. Members using their own
+// key pay their own way and are not limited.
+export const DAILY_SCAN_LIMIT = Number(process.env.AI_DAILY_SCAN_LIMIT || 100)
+
+// Counts this scan and returns { count, limited }. Fails open on a database
+// error: a broken counter should not take scanning down, and the provider's
+// own monthly spend cap is the hard backstop.
+export async function consumeScan(supabase, limit = DAILY_SCAN_LIMIT) {
+  const { data, error } = await supabase.rpc('record_ai_scan')
+  if (error) {
+    console.warn('scan quota unavailable, allowing request', error.message)
+    return { count: null, limited: false }
+  }
+  return { count: data, limited: data > limit }
+}
+
+// Today's usage without counting anything, for the Settings screen.
+export async function readUsage(supabase) {
+  const { data, error } = await supabase
+    .from('ai_usage')
+    .select('scans, day')
+    .eq('day', new Date().toISOString().slice(0, 10))
+    .limit(1)
+    .maybeSingle()
+  if (error) return null
+  return data?.scans ?? 0
+}
+
 export const NOT_CONFIGURED =
   'No AI key is set up. Add your own provider key under Settings → AI identification, and scanning will be billed to your account.'

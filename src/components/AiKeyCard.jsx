@@ -186,13 +186,33 @@ function StatusLine({ saved, status }) {
     )
   }
   if (status?.source === 'app') {
+    const used = status.usedToday
+    const limit = status.dailyLimit
+    const nearLimit = used != null && limit != null && used >= limit * 0.8
     return (
       <div className="text-sm">
         <span className="font-semibold text-warn">Using the shared key</span>
         <div className="mt-0.5 text-xs text-ink-3">
-          Your scans are billed to whoever deployed this app. Add your own key below to pay for
-          your own.
+          Your scans are billed to whoever deployed this app, and are capped daily. Add your own
+          key below to remove the cap and pay for your own.
         </div>
+        {used != null && limit != null && (
+          <div className="mt-2">
+            <div className="flex items-baseline justify-between text-xs">
+              <span className="text-ink-2">Today</span>
+              <span className={`font-semibold tabular-nums ${nearLimit ? 'text-warn' : 'text-ink-2'}`}>
+                {used} / {limit} scans
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface">
+              <div
+                className={`h-full rounded-full ${nearLimit ? 'bg-warn' : 'bg-accent'}`}
+                style={{ width: `${Math.min(100, (used / limit) * 100)}%` }}
+              />
+            </div>
+            <div className="mt-1 text-[11px] text-ink-3">Resets at midnight UTC.</div>
+          </div>
+        )}
       </div>
     )
   }
