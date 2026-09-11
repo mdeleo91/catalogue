@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button, Card, Field, SectionTitle, inputCls } from '../components/ui'
-import AiKeyCard from '../components/AiKeyCard'
+import AiStatusCard from '../components/AiStatusCard'
 import UpdateCard from '../components/UpdateCard'
 import { useMaybeAuth } from '../lib/auth'
 import { useStore } from '../lib/store'
@@ -118,7 +118,7 @@ export default function Settings() {
       <UpdateCard />
 
       {cloud ? (
-        <AiKeyCard />
+        <AiStatusCard />
       ) : (
         <>
           <SectionTitle>AI identification</SectionTitle>

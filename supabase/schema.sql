@@ -74,23 +74,8 @@ create index location_history_collection_idx on location_history(collection_id);
 create index activity_collection_idx on activity(collection_id);
 create index wishlist_collection_idx on wishlist(collection_id);
 
--- Per-user AI keys: scanning is billed to whoever does it, not to whoever
--- deployed the app. RLS scopes these to the owning user, so one member can
--- never read or spend another's key.
-
-create table user_ai_keys (
-  user_id uuid primary key references auth.users(id) on delete cascade,
-  provider text not null check (provider in ('anthropic', 'openai')),
-  api_key text not null,
-  model text,
-  -- Last few characters only, so the app can show which key is saved without
-  -- ever reading the secret back into a browser.
-  key_hint text,
-  updated_at timestamptz not null default now()
-);
-
--- Daily scan quota for the shared AI key. Members scanning on their own key
--- are spending their own money and are not limited.
+-- Daily scan quota. Every member scans on the deployment's own Anthropic
+-- key, so this per-member ceiling is what bounds the bill.
 
 create table ai_usage (
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -110,7 +95,6 @@ alter table locations enable row level security;
 alter table location_history enable row level security;
 alter table activity enable row level security;
 alter table wishlist enable row level security;
-alter table user_ai_keys enable row level security;
 alter table ai_usage enable row level security;
 
 create or replace function is_member(cid uuid) returns boolean
@@ -139,9 +123,6 @@ create policy member_all_activity on activity for all
   using (is_member(collection_id)) with check (is_member(collection_id));
 create policy member_all_wishlist on wishlist for all
   using (is_member(collection_id)) with check (is_member(collection_id));
-
-create policy own_ai_key on user_ai_keys for all
-  using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- Read-only: the counter is only ever changed by record_ai_scan(), so a
 -- client cannot reset or fake its own usage.

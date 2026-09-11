@@ -1,14 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk'
 import {
   DAILY_SCAN_LIMIT, MAX_IMAGES, MAX_TOTAL_BYTES, NOT_CONFIGURED,
-  authenticate, consumeScan, cors, resolveCredential,
+  authenticate, consumeScan, cors, sharedCredential,
 } from './_lib.js'
 
 // Server-side AI identification.
 //
-// The key lives on the server and never reaches a browser or the APK. Each
-// member's own key is preferred, so scanning is billed to whoever does it;
-// ANTHROPIC_API_KEY is an optional shared fallback for whoever sets one.
+// ANTHROPIC_API_KEY lives on the server and never reaches a browser or the
+// APK. Every member scans on it, so a per-member daily quota is what keeps
+// the bill bounded.
 
 const SYSTEM = `You identify physical retro video game collection artifacts from photographs: games, magazines, strategy guides, manuals, boxes, consoles, and accessories.
 
@@ -63,25 +63,22 @@ export default async function handler(req, res) {
   const auth = await authenticate(req)
   if (auth.error) return res.status(auth.status).json({ error: auth.error })
 
-  // 3. Whose key pays for this?
-  const cred = await resolveCredential(auth.supabase)
-  if (!cred.source) {
+  // 3. Is scanning switched on at all?
+  const cred = sharedCredential()
+  if (!cred) {
     return res.status(503).json({ error: NOT_CONFIGURED, code: 'not_configured' })
   }
 
-  // 4. Quota, but only on the shared key — someone scanning on their own key
-  //    is spending their own money. Counted before the provider call so a
-  //    runaway loop is stopped rather than merely recorded.
-  if (cred.source === 'app') {
-    const { count, limited } = await consumeScan(auth.supabase)
-    if (limited) {
-      return res.status(429).json({
-        error: `Daily scan limit reached (${DAILY_SCAN_LIMIT} on the shared key). It resets at midnight UTC — or add your own API key under Settings to scan without this limit.`,
-        code: 'daily_limit',
-        count,
-        limit: DAILY_SCAN_LIMIT,
-      })
-    }
+  // 4. Quota, counted before the provider call so a runaway loop is stopped
+  //    rather than merely recorded.
+  const { count, limited } = await consumeScan(auth.supabase)
+  if (limited) {
+    return res.status(429).json({
+      error: `Daily scan limit reached (${DAILY_SCAN_LIMIT} per person). It resets at midnight UTC.`,
+      code: 'daily_limit',
+      count,
+      limit: DAILY_SCAN_LIMIT,
+    })
   }
 
   // 5. Ask the model.
@@ -98,10 +95,10 @@ export default async function handler(req, res) {
     const { confidence = {}, summary = '', ...fields } = parsed
     return res
       .status(200)
-      .json({ fields, confidence, summary, source: cred.source })
+      .json({ fields, confidence, summary })
   } catch (error) {
     console.error('Anthropic call failed', error)
-    return res.status(error.httpStatus || 502).json({ error: describeError(cred, error) })
+    return res.status(error.httpStatus || 502).json({ error: describeError(error) })
   }
 }
 
@@ -141,24 +138,21 @@ export async function askClaude(images, cred) {
     .join('\n')
 }
 
-function describeError(cred, error) {
+function describeError(error) {
   if (error.declined) return 'The model declined to analyze this image. Try a different photo.'
 
   const status = error?.status
-  const whose = cred.source === 'user' ? 'your saved key' : 'the shared key'
 
   if (status === 401 || status === 403) {
-    return cred.source === 'user'
-      ? 'Anthropic rejected your saved API key. Check it under Settings → AI identification.'
-      : 'Anthropic rejected the shared key.'
+    return 'Anthropic rejected this deployment\'s API key — check ANTHROPIC_API_KEY.'
   }
   if (status === 429) return 'Rate limited by Anthropic — wait a moment and try again.'
   if (status === 400 && /credit|billing|quota/i.test(error?.message || '')) {
-    return `Anthropic reports no available credit on ${whose}.`
+    return 'Anthropic reports no available credit on this deployment\'s key.'
   }
   // Usually a model name that no longer exists or isn't enabled on the account.
   if (status === 404) {
-    return 'Anthropic does not recognise the configured model. Pick a different one under Settings → AI identification.'
+    return 'Anthropic does not recognise the configured model. Set ANTHROPIC_MODEL to one this account can use.'
   }
   if (status) return `Identification failed (Anthropic returned ${status}).`
   return 'Identification failed. Try again.'

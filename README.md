@@ -76,40 +76,31 @@ Anthropic does not let a third-party app run on a user's Claude *subscription*
 Claude account" is not on offer. An API key is the only route. (The same is
 true of OpenAI: ChatGPT Plus has never included API access.)
 
-What the app does instead is let **each member bring their own key**, so
-scanning is billed to whoever does it rather than to whoever deployed the app.
+The deployment holds one key, so **nobody using the app ever handles one** —
+signing in to Catalog is the only step, for you and anyone you invite.
 
-1. Run `supabase/add-user-ai-keys.sql` once in the Supabase SQL editor. (It is
-   already part of `schema.sql`, so a fresh install needs nothing extra.)
-2. Each member opens **Settings → AI identification** and pastes a key from
-   [console.anthropic.com](https://console.anthropic.com).
+1. Create a key at [console.anthropic.com](https://console.anthropic.com) →
+   **API keys**, and add a little credit under Billing.
+2. In Vercel → Project → **Settings → Environment Variables**, add
+   `ANTHROPIC_API_KEY`. Leave the `VITE_` prefix off — that prefix is what
+   compiles a value into the public browser bundle, and this must stay
+   server-side.
+3. Redeploy. Environment variables only take effect on a new build.
 
-That is all. Keys are stored per user with row-level security, so one member
-can never read or spend another's — including through the identification
-endpoint, which looks the key up with the caller's own token and therefore
-cannot reach anybody else's row.
-
-### Optional: a shared key
-
-If you would rather cover everyone yourself, set `ANTHROPIC_API_KEY` in
-Vercel → **Settings → Environment Variables** (no `VITE_`
-prefix — that prefix is what compiles a value into the public browser bundle).
-It is used only for members who have not saved a key of their own, and the
-Settings screen tells each member which credential their scans are running on.
-Leave it unset and everyone simply brings their own.
+**Settings → AI identification** then reads "Scanning is on" with each
+member's usage for the day.
 
 | Variable | Purpose |
 |---|---|
-| `ANTHROPIC_API_KEY` | Optional shared fallback key. |
-| `ANTHROPIC_MODEL` | Override the shared key's model. Per-user keys set their own in Settings. |
-| `AI_DAILY_SCAN_LIMIT` | Scans per member per day on the shared key. Default 100. |
+| `ANTHROPIC_API_KEY` | The key every scan runs on. Unset means scanning is off. |
+| `ANTHROPIC_MODEL` | Override the model. Default `claude-opus-5`. |
+| `AI_DAILY_SCAN_LIMIT` | Scans per member per day. Default 100. |
 
 ### What a scan costs, and keeping it bounded
 
 Photos are capped at 640px, so a one-photo scan is roughly 690 input tokens
-and 350–1,150 output tokens depending on how much the model reasons. Adding
-more photos costs about 10% each — the text and reasoning dominate, not the
-images.
+and 350–1,150 output tokens depending on how much the model reasons. Extra
+photos add about 10% each — the text and reasoning dominate, not the images.
 
 | Model | Per scan | Per 1,000 scans |
 |---|---|---|
@@ -118,16 +109,16 @@ images.
 | Claude Haiku 4.5 | ~$0.0024 | ~$2.44 |
 
 Normal use is cheap — cataloging a 500-item collection costs about $16 on the
-default model. The real exposure is a loop hammering the endpoint, which could
-run to roughly $130/hour unchecked. Three things bound it:
+default model. The exposure is a loop hammering the endpoint, which unchecked
+could reach roughly $130/hour. Three things bound it:
 
-1. **Per-member daily cap.** Scans on the shared key are counted and refused
-   past `AI_DAILY_SCAN_LIMIT`. The counter is server-enforced — members can
-   read their own usage but the only thing that can change it is a
+1. **Per-member daily cap.** Scans are counted and refused past
+   `AI_DAILY_SCAN_LIMIT`. The counter is server-enforced: members can read
+   their own usage, but the only thing that can change it is a
    `security definer` function that increments the caller's own row, so the
-   limit cannot be raised from the client. Members using their own key are
-   exempt, since they are spending their own money.
-2. **Membership.** The endpoint refuses anyone who is not in a collection.
+   limit cannot be raised from the client.
+2. **Membership.** The endpoint refuses anyone who is not in a collection,
+   and checks that before it reveals anything about the configuration.
 3. **A provider spend cap.** Set a monthly limit in the Anthropic console
    (Billing → limits). This is the only backstop that holds if something in
    the app itself is wrong, so set it regardless.
@@ -135,14 +126,8 @@ run to roughly $130/hour unchecked. Three things bound it:
 Run `supabase/add-ai-usage-limit.sql` once to create the counter on an
 existing project; `schema.sql` already includes it for fresh installs.
 
-`api/identify.js` caps each request at 6 photos and 4 MB and refuses anyone who
-is not a signed-in member of a collection, so the endpoint cannot be used by
-strangers who find it.
-
-**On key storage:** keys live in the app's own Supabase database, protected by
-row-level security. That stops other members reading them, but whoever
-administers the Supabase project has database access — so use a key scoped to
-this app and revoke it at the provider if you stop using Catalog.
+If you plan a long cataloging session, raise `AI_DAILY_SCAN_LIMIT` — at the
+default of 100 a day, a 1,000-item collection takes ten days.
 
 ## Installing on a phone
 
@@ -269,15 +254,14 @@ build or debug locally instead of via CI.
   `src/pages/CollectionSetup.jsx` — Supabase email/password accounts, then
   create-or-join a shared collection via an invite code (server-side RPCs). The
   Anthropic API key stays per-device in localStorage, never in the database.
-- **AI:** `api/identify.js` is a Vercel serverless function that calls Claude.
-  `src/lib/ai.js` posts photos to it using the caller's
-  existing Supabase session; the function verifies that session and collection
-  membership, then resolves *whose* key pays — the caller's own row in
-  `user_ai_keys` first, a deployment-wide env key as fallback. That lookup runs
-  under the caller's token, so RLS makes it impossible for one member's scan to
-  reach another's key. `api/ai-status.js` reports which credential is in play
-  without ever returning it. No API key reaches the browser or the APK, and the
-  client bundle carries neither provider's SDK.
+- **AI:** `api/identify.js` is a Vercel serverless function that calls Claude
+  with a key held in the server environment. `src/lib/ai.js` posts photos to
+  it using the caller's existing Supabase session; the function verifies that
+  session and collection membership, counts the scan against the caller's
+  daily quota, and only then spends anything. `api/ai-status.js` reports
+  whether scanning is on and the caller's usage. No API key reaches the
+  browser or the APK, and the client bundle carries no AI SDK.
+
 - **Backend:** `supabase/schema.sql` — collections and members are relational;
   collection content (items, locations, history, activity, wishlist) is stored
   document-style with the app's row shape in a `jsonb` column, since all search

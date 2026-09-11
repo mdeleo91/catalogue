@@ -53,34 +53,14 @@ export async function authenticate(req) {
   return { supabase, user: userData.user }
 }
 
-// Which credential this caller's scan should run on. The caller's own key
-// wins, so each member is billed for their own scanning; the deployment-wide
-// key is only a fallback for whoever chooses to provide one.
-//
-// RLS means this query can only ever return the caller's own row — the
-// endpoint cannot reach another member's key even by accident.
-export async function resolveCredential(supabase) {
-  const { data, error } = await supabase
-    .from('user_ai_keys')
-    .select('provider, api_key, model')
-    .limit(1)
-    .maybeSingle()
-
-  if (!error && data?.api_key) {
-    return { source: 'user', apiKey: data.api_key, model: data.model || DEFAULT_MODEL }
-  }
-
-  const shared = appKey()
-  if (!shared) return { source: null }
-  return {
-    source: 'app',
-    apiKey: shared,
-    model: process.env.ANTHROPIC_MODEL || DEFAULT_MODEL,
-  }
+// The single shared key this deployment runs on, or null when unset.
+export function sharedCredential(env = process.env) {
+  if (!env.ANTHROPIC_API_KEY) return null
+  return { apiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL || DEFAULT_MODEL }
 }
 
-// Daily ceiling on scans that run on the SHARED key. Members using their own
-// key pay their own way and are not limited.
+// Daily ceiling on scans per member. Every scan runs on the deployment's own
+// key, so this is what bounds the bill.
 export const DAILY_SCAN_LIMIT = Number(process.env.AI_DAILY_SCAN_LIMIT || 100)
 
 // Counts this scan and returns { count, limited }. Fails open on a database
@@ -108,4 +88,4 @@ export async function readUsage(supabase) {
 }
 
 export const NOT_CONFIGURED =
-  'No AI key is set up. Add your own provider key under Settings → AI identification, and scanning will be billed to your account.'
+  'AI identification is not switched on for this deployment. Scan still works as guided manual entry.'
