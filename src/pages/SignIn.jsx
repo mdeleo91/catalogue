@@ -24,13 +24,16 @@ export default function SignIn() {
         if (!data.session) {
           setMessage({
             tone: 'info',
-            text: 'Account created — check your email for a confirmation link, then sign in.',
+            text:
+              'Account created, but this project still requires email confirmation — ' +
+              'check your inbox (and spam) for the link. If nothing arrives, turn off ' +
+              '“Confirm email” in Supabase → Authentication → Sign In / Providers → Email.',
           })
           setMode('signin')
         }
       }
     } catch (err) {
-      setMessage({ tone: 'error', text: err.message || 'Something went wrong. Try again.' })
+      setMessage({ tone: 'error', text: friendlyAuthError(err) })
     } finally {
       setBusy(false)
     }
@@ -107,4 +110,24 @@ export default function SignIn() {
       </p>
     </div>
   )
+}
+
+// Supabase's raw auth errors are terse; the confirmation one in particular
+// leaves you with no idea what to do about it.
+function friendlyAuthError(err) {
+  const msg = err?.message || ''
+  if (/email not confirmed/i.test(msg)) {
+    return (
+      'This account was created while email confirmation was still required, and it was ' +
+      'never confirmed. Turn off “Confirm email” in Supabase → Authentication → Sign In / ' +
+      'Providers → Email, then delete this user under Authentication → Users and sign up again.'
+    )
+  }
+  if (/invalid login credentials/i.test(msg)) {
+    return 'That email and password don’t match an account. Check them, or create an account.'
+  }
+  if (/rate limit|too many requests/i.test(msg)) {
+    return 'Too many attempts — wait a minute and try again.'
+  }
+  return msg || 'Something went wrong. Try again.'
 }

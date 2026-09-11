@@ -31,10 +31,20 @@ The app has two modes:
 2. In the Supabase dashboard, open **SQL Editor**, paste the entire contents of
    `supabase/schema.sql`, and run it once. This creates the tables, row-level
    security, invite-code functions, and realtime publication.
-3. Under **Authentication → Sign In / Up**, make sure the **Email** provider is
-   enabled. Optional: turn off "Confirm email" so accounts work instantly
-   (otherwise each account must click a confirmation link first — the app
-   handles that flow too).
+3. Under **Authentication → Sign In / Providers → Email**, make sure the Email
+   provider is enabled and turn **"Confirm email" OFF**, then Save. Accounts
+   then work the moment you create them, with no email involved.
+
+   This is not just a convenience — Supabase's built-in email service is for
+   testing only. It is rate-limited to a couple of messages an hour and will
+   only deliver to addresses attached to your Supabase organization, so a
+   family member signing up from their own address would never receive a
+   confirmation link. (Leaving confirmation on is only workable if you first
+   configure your own SMTP provider under **Authentication → Emails → SMTP
+   Settings**. The app supports either flow.)
+
+   If you already signed up before changing this, that account is stuck
+   unconfirmed — delete it under **Authentication → Users** and sign up again.
 4. In Vercel → Project → **Settings → Environment Variables**, add:
    - `VITE_SUPABASE_URL` — Supabase → **Settings → Data API → Project URL**.
      It is always `https://<project-ref>.supabase.co`, and the project ref is
@@ -55,9 +65,9 @@ own account, taps **Join with a code**, and enters it. Both accounts now see and
 edit the same live collection; every add/edit/move is attributed in the shared
 activity history and syncs to other signed-in devices within a second or two.
 
-The anon key is safe to expose in the front end: every table is protected by
-row-level security, so a signed-in user can only touch the collection they are
-a member of, and signed-out requests can touch nothing.
+The publishable key is safe to expose in the front end: every table is
+protected by row-level security, so a signed-in user can only touch the
+collection they are a member of, and signed-out requests can touch nothing.
 
 ## What's in the MVP
 
@@ -84,7 +94,8 @@ a member of, and signed-out requests can touch nothing.
   estimates), breakdowns by platform / media type / decade / location, set
   completion against known library sizes (NES, SNES, Genesis…), and generated
   insights ("41% of your games are missing original manuals", duplicate detection).
-- **Shared collection** — two users (switchable in Settings) with an activity
+- **Shared collection** — real accounts sharing one collection via an invite
+  code (a user switcher stands in for this in demo mode), with an activity
   history recording who added, updated, and moved what.
 - **Wishlist** — separate from the collection, with desired condition,
   completeness, target price, and priority.
