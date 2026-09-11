@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button, Card, Field, SectionTitle, inputCls } from '../components/ui'
+import AiKeyCard from '../components/AiKeyCard'
 import UpdateCard from '../components/UpdateCard'
 import { useMaybeAuth } from '../lib/auth'
 import { useStore } from '../lib/store'
@@ -116,18 +117,19 @@ export default function Settings() {
 
       <UpdateCard />
 
-      <SectionTitle>AI identification</SectionTitle>
-      <Card className="space-y-2">
-        <p className="text-sm text-ink-2">
-          {cloud
-            ? 'Scanning runs on Catalog\u2019s own server, so there is no API key to obtain or paste \u2014 being signed in is all that is needed, for you and anyone you invite.'
-            : 'AI identification needs a signed-in Catalog account. In demo mode, Scan falls back to manual entry with your photos attached.'}
-        </p>
-        <p className="text-xs text-ink-3">
-          Photos are sent to the configured AI provider (Claude or GPT) only at the moment you tap
-          Identify. If identification is unavailable, Scan still works as guided manual entry.
-        </p>
-      </Card>
+      {cloud ? (
+        <AiKeyCard />
+      ) : (
+        <>
+          <SectionTitle>AI identification</SectionTitle>
+          <Card>
+            <p className="text-sm text-ink-2">
+              AI identification needs a signed-in Catalog account. In demo mode, Scan falls back to
+              manual entry with your photos attached.
+            </p>
+          </Card>
+        </>
+      )}
 
       <SectionTitle>Wishlist</SectionTitle>
       <Card>

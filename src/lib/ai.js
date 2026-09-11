@@ -7,7 +7,7 @@ import { supabase } from './supabase'
 //
 // In the installed APK the page origin is the bundled app, not the website,
 // so the deployed URL is baked in at build time.
-const API_BASE = (
+export const API_BASE = (
   import.meta.env.VITE_API_BASE_URL ||
   (typeof window !== 'undefined' ? window.location.origin : '')
 ).replace(/\/$/, '')
