@@ -33,7 +33,12 @@ export default function SignIn() {
         }
       }
     } catch (err) {
-      setMessage({ tone: 'error', text: friendlyAuthError(err) })
+      console.error('Supabase auth error', err)
+      setMessage({
+        tone: 'error',
+        text: friendlyAuthError(err),
+        detail: [err?.code, err?.status].filter(Boolean).join(' · ') || err?.message,
+      })
     } finally {
       setBusy(false)
     }
@@ -96,6 +101,9 @@ export default function SignIn() {
             }`}
           >
             {message.text}
+            {message.detail && (
+              <div className="mt-1 font-mono text-[10px] opacity-70">{message.detail}</div>
+            )}
           </div>
         )}
 
@@ -112,22 +120,49 @@ export default function SignIn() {
   )
 }
 
-// Supabase's raw auth errors are terse; the confirmation one in particular
-// leaves you with no idea what to do about it.
+// Supabase's raw auth errors are terse, and two of them are actively
+// misleading during first-time setup: the email-send limit and the request
+// limit both read as "rate limit" but have completely different causes.
 function friendlyAuthError(err) {
+  const code = err?.code || ''
   const msg = err?.message || ''
-  if (/email not confirmed/i.test(msg)) {
+  const is = (c, re) => code === c || re.test(msg)
+
+  // Only reachable when Supabase is still trying to SEND a confirmation email,
+  // so it is really a "confirmation is still switched on" error.
+  if (is('over_email_send_rate_limit', /email rate limit|email send rate/i)) {
+    return (
+      'Supabase hit its confirmation-email sending limit, which means “Confirm email” is ' +
+      'still switched on. Turn it off in Supabase → Authentication → Sign In / Providers → ' +
+      'Email and press Save, then sign up again — with it off no email is sent and the ' +
+      'limit stops applying. (That cap resets hourly, not per minute.)'
+    )
+  }
+  if (is('over_request_rate_limit', /request rate limit/i)) {
+    return 'Too many attempts in a short window — wait a minute, then try again.'
+  }
+  if (/only request this after (\d+) seconds?/i.test(msg)) {
+    const secs = msg.match(/only request this after (\d+) seconds?/i)[1]
+    return `Supabase is throttling repeat attempts — try again in ${secs} seconds.`
+  }
+  if (is('email_not_confirmed', /email not confirmed/i)) {
     return (
       'This account was created while email confirmation was still required, and it was ' +
       'never confirmed. Turn off “Confirm email” in Supabase → Authentication → Sign In / ' +
       'Providers → Email, then delete this user under Authentication → Users and sign up again.'
     )
   }
-  if (/invalid login credentials/i.test(msg)) {
+  if (is('user_already_exists', /already registered|already exists/i)) {
+    return 'An account with this email already exists — switch to Sign in.'
+  }
+  if (is('invalid_credentials', /invalid login credentials/i)) {
     return 'That email and password don’t match an account. Check them, or create an account.'
   }
-  if (/rate limit|too many requests/i.test(msg)) {
-    return 'Too many attempts — wait a minute and try again.'
+  if (is('weak_password', /password.*(short|weak|least)/i)) {
+    return 'Pick a longer password — at least 6 characters.'
+  }
+  if (is('signup_disabled', /signups? not allowed|signup is disabled/i)) {
+    return 'Sign-ups are disabled for this Supabase project — enable them under Authentication → Sign In / Providers.'
   }
   return msg || 'Something went wrong. Try again.'
 }
