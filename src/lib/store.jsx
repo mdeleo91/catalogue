@@ -191,7 +191,7 @@ function loadLocalSettings() {
   } catch (e) {
     console.warn('Could not load settings', e)
   }
-  return { anthropicApiKey: '' }
+  return {}
 }
 
 // ---------------------------------------------------------------------------

@@ -1,18 +1,20 @@
-import { useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Button, Card } from '../components/ui'
-import { identifyItem, hasApiKey } from '../lib/ai'
+import { aiSignedIn, identifyItem } from '../lib/ai'
 import { fileToDataUrls } from '../lib/image'
-import { useStore } from '../lib/store'
 
 export default function Scan() {
-  const { state } = useStore()
   const navigate = useNavigate()
   const fileInput = useRef(null)
   const [photos, setPhotos] = useState([]) // [{thumb, full}]
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
-  const aiReady = hasApiKey(state.settings)
+  const [aiReady, setAiReady] = useState(false)
+
+  useEffect(() => {
+    aiSignedIn().then(setAiReady)
+  }, [])
 
   const addPhotos = async (e) => {
     setError(null)
@@ -30,10 +32,7 @@ export default function Scan() {
     setBusy(true)
     setError(null)
     try {
-      const { fields, confidence, summary } = await identifyItem(
-        photos.map((p) => p.full),
-        state.settings.anthropicApiKey,
-      )
+      const { fields, confidence, summary } = await identifyItem(photos.map((p) => p.full))
       navigate('/items/new', { state: { prefill: fields, confidence, summary, photos } })
     } catch (err) {
       setError(err.message)
@@ -102,9 +101,8 @@ export default function Scan() {
             </Button>
           ) : (
             <Card className="border-warn/40 bg-warn/10 text-sm text-warn">
-              AI identification needs an Anthropic API key —{' '}
-              <Link to="/settings" className="font-semibold underline">add one in Settings</Link>. You
-              can still catalog manually with your photos attached.
+              Sign in to your Catalog account to use AI identification. You can still catalog
+              manually with your photos attached.
             </Card>
           )}
           <Button variant="secondary" onClick={manual} className="w-full">

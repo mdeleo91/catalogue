@@ -205,6 +205,6 @@ export function buildSeedState() {
         createdAt: new Date().toISOString(),
       },
     ],
-    settings: { anthropicApiKey: '' },
+    settings: {},
   }
 }

@@ -9,7 +9,6 @@ export default function Settings() {
   const { state, dispatch } = useStore()
   const auth = useMaybeAuth()
   const fileInput = useRef(null)
-  const [keyDraft, setKeyDraft] = useState(state.settings.anthropicApiKey || '')
   const [message, setMessage] = useState(null)
   const cloud = Boolean(state.cloud)
 
@@ -119,28 +118,14 @@ export default function Settings() {
 
       <SectionTitle>AI identification</SectionTitle>
       <Card className="space-y-2">
-        <Field label="Anthropic API key">
-          <input
-            className={inputCls}
-            type="password"
-            placeholder="sk-ant-…"
-            value={keyDraft}
-            onChange={(e) => setKeyDraft(e.target.value)}
-          />
-        </Field>
-        <Button
-          className="w-full py-2"
-          onClick={() => {
-            dispatch({ type: 'SET_SETTINGS', payload: { anthropicApiKey: keyDraft.trim() } })
-            setMessage(keyDraft.trim() ? 'API key saved on this device.' : 'API key cleared.')
-          }}
-        >
-          Save key
-        </Button>
+        <p className="text-sm text-ink-2">
+          {cloud
+            ? 'Scanning runs on Catalog\u2019s own server, so there is no API key to obtain or paste \u2014 being signed in is all that is needed, for you and anyone you invite.'
+            : 'AI identification needs a signed-in Catalog account. In demo mode, Scan falls back to manual entry with your photos attached.'}
+        </p>
         <p className="text-xs text-ink-3">
-          Used only for the Scan feature, sent directly from this device to the Anthropic API, and
-          stored only in this browser — never in the shared database. Without a key, scanning falls
-          back to manual entry.
+          Photos are sent to Anthropic only at the moment you tap Identify, and are not retained by
+          the service. If identification is unavailable, Scan still works as guided manual entry.
         </p>
       </Card>
 

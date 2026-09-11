@@ -1,108 +1,85 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { dataUrlToBase64 } from './image'
-import { ITEM_TYPES, PLATFORMS, REGIONS } from './constants'
+import { supabase } from './supabase'
 
-// Identify a physical collection item from one or more photographs using
-// Claude vision. Runs directly from the browser against the user's own API
-// key (entered in Settings and stored only on-device). Returns:
-//   { fields: {...}, confidence: { field: 0..1 }, summary }
-// or throws with a readable message.
+// AI identification runs on the server (api/identify.js) using a key held in
+// the Vercel project, so no API key is ever entered into, stored by, or sent
+// from the app. The caller's existing Catalog session is the credential.
+//
+// In the installed APK the page origin is the bundled app, not the website,
+// so the deployed URL is baked in at build time.
+const API_BASE = (
+  import.meta.env.VITE_API_BASE_URL ||
+  (typeof window !== 'undefined' ? window.location.origin : '')
+).replace(/\/$/, '')
 
-const SYSTEM = `You identify physical retro video game collection artifacts from photographs: games, magazines, strategy guides, manuals, boxes, consoles, and accessories.
-
-Respond with ONLY a JSON object, no markdown fences, matching:
-{
-  "type": one of ${JSON.stringify(ITEM_TYPES.map((t) => t.id))},
-  "title": string,
-  "platform": one of ${JSON.stringify(PLATFORMS)} or null,
-  "publisher": string|null,
-  "developer": string|null,
-  "releaseYear": number|null,
-  "region": one of ${JSON.stringify(REGIONS)} or null,
-  "edition": string|null,
-  "genre": string|null,
-  "franchise": string|null,
-  "issueNumber": number|null,
-  "publicationDate": "YYYY-MM-DD"|null,
-  "isbn": string|null,
-  "author": string|null,
-  "model": string|null,
-  "summary": one-sentence identification,
-  "confidence": { "<each populated field>": number between 0 and 1 }
+export class AiUnavailableError extends Error {
+  constructor(message, code) {
+    super(message)
+    this.code = code
+  }
 }
 
-Rules:
-- Identify the specific release when possible (region, edition).
-- Give honest per-field confidence; use low values when guessing.
-- Multiple photos are different views of the SAME physical item.
-- Use null for anything you cannot determine.`
-
-export function hasApiKey(settings) {
-  return Boolean(settings?.anthropicApiKey?.trim())
+async function accessToken() {
+  if (!supabase) return null
+  const { data } = await supabase.auth.getSession()
+  return data.session?.access_token || null
 }
 
-export async function identifyItem(photoDataUrls, apiKey) {
-  const client = new Anthropic({ apiKey: apiKey.trim(), dangerouslyAllowBrowser: true })
+// True when the user could plausibly run a scan: cloud mode + signed in.
+// Whether the server actually has a key configured is only known once we ask.
+export async function aiSignedIn() {
+  return Boolean(await accessToken())
+}
 
-  const imageBlocks = photoDataUrls.map((dataUrl) => {
-    const { mediaType, data } = dataUrlToBase64(dataUrl)
-    return { type: 'image', source: { type: 'base64', media_type: mediaType, data } }
-  })
+export async function identifyItem(photoDataUrls) {
+  const token = await accessToken()
+  if (!token) {
+    throw new AiUnavailableError(
+      'Sign in to your Catalog account to use AI identification.',
+      'signed_out',
+    )
+  }
 
-  let response
+  const images = photoDataUrls.map((dataUrl) => dataUrlToBase64(dataUrl))
+
+  let res
   try {
-    response = await client.messages.create({
-      model: 'claude-opus-5',
-      max_tokens: 2048,
-      system: SYSTEM,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            ...imageBlocks,
-            { type: 'text', text: 'Identify this item and return the JSON object.' },
-          ],
-        },
-      ],
+    res = await fetch(`${API_BASE}/api/identify`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ images }),
     })
-  } catch (error) {
-    if (error instanceof Anthropic.AuthenticationError) {
-      throw new Error('The Anthropic API key in Settings was rejected. Check it and try again.')
-    }
-    if (error instanceof Anthropic.RateLimitError) {
-      throw new Error('Rate limited by the Anthropic API — wait a moment and try again.')
-    }
-    if (error instanceof Anthropic.APIError) {
-      throw new Error(`Identification failed (${error.status}): ${error.message}`)
-    }
-    throw new Error('Could not reach the Anthropic API. Check your connection and try again.')
-  }
-
-  if (response.stop_reason === 'refusal') {
-    throw new Error('The model declined to analyze this image. Try a different photo.')
-  }
-
-  const text = response.content
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n')
-
-  const parsed = extractJson(text)
-  if (!parsed || !parsed.title) {
-    throw new Error('The model could not confidently identify this item. Enter it manually below.')
-  }
-
-  const { confidence = {}, summary = '', ...fields } = parsed
-  return { fields, confidence, summary }
-}
-
-function extractJson(text) {
-  const start = text.indexOf('{')
-  const end = text.lastIndexOf('}')
-  if (start === -1 || end <= start) return null
-  try {
-    return JSON.parse(text.slice(start, end + 1))
   } catch {
-    return null
+    throw new AiUnavailableError(
+      'Could not reach the identification service. Check your connection and try again.',
+      'network',
+    )
+  }
+
+  let payload = null
+  try {
+    payload = await res.json()
+  } catch {
+    /* fall through to the status-based message below */
+  }
+
+  if (!res.ok) {
+    throw new AiUnavailableError(
+      payload?.error || `Identification failed (HTTP ${res.status}).`,
+      payload?.code || (res.status === 503 ? 'not_configured' : 'error'),
+    )
+  }
+
+  if (!payload?.fields?.title) {
+    throw new AiUnavailableError(
+      'Could not confidently identify this item. Enter the details manually.',
+      'no_match',
+    )
+  }
+
+  return {
+    fields: payload.fields,
+    confidence: payload.confidence || {},
+    summary: payload.summary || '',
   }
 }

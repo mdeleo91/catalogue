@@ -87,6 +87,10 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY || vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_APP_VERSION: ${{ steps.version.outputs.value }}
           VITE_UPDATE_REPO: ${{ github.repository }}
+          # The installed app serves its UI from inside the APK, so the AI
+          # endpoint needs an absolute URL. Override with an Actions variable
+          # if the site moves to a custom domain.
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL || 'https://catalogue-sigma.vercel.app' }}
         run: npm run build
 
       - name: Copy web build into the Android project
