@@ -71,21 +71,18 @@ collection they are a member of, and signed-out requests can touch nothing.
 
 ## Turning on AI identification
 
-Neither Anthropic nor OpenAI lets a third-party app run on a user's Claude or
-ChatGPT *subscription* — Anthropic explicitly prohibits it and blocks it
-server-side, and ChatGPT Plus has never included API access. So "sign in with
-your AI account" is not on offer from either provider; an API key is the only
-route.
+Anthropic does not let a third-party app run on a user's Claude *subscription*
+— it explicitly prohibits it and blocks it server-side — so "sign in with your
+Claude account" is not on offer. An API key is the only route. (The same is
+true of OpenAI: ChatGPT Plus has never included API access.)
 
 What the app does instead is let **each member bring their own key**, so
 scanning is billed to whoever does it rather than to whoever deployed the app.
 
 1. Run `supabase/add-user-ai-keys.sql` once in the Supabase SQL editor. (It is
    already part of `schema.sql`, so a fresh install needs nothing extra.)
-2. Each member opens **Settings → AI identification**, picks Claude or GPT,
-   and pastes a key from
-   [console.anthropic.com](https://console.anthropic.com) or
-   [platform.openai.com](https://platform.openai.com/api-keys).
+2. Each member opens **Settings → AI identification** and pastes a key from
+   [console.anthropic.com](https://console.anthropic.com).
 
 That is all. Keys are stored per user with row-level security, so one member
 can never read or spend another's — including through the identification
@@ -94,8 +91,8 @@ cannot reach anybody else's row.
 
 ### Optional: a shared key
 
-If you would rather cover everyone yourself, set `ANTHROPIC_API_KEY` or
-`OPENAI_API_KEY` in Vercel → **Settings → Environment Variables** (no `VITE_`
+If you would rather cover everyone yourself, set `ANTHROPIC_API_KEY` in
+Vercel → **Settings → Environment Variables** (no `VITE_`
 prefix — that prefix is what compiles a value into the public browser bundle).
 It is used only for members who have not saved a key of their own, and the
 Settings screen tells each member which credential their scans are running on.
@@ -103,9 +100,8 @@ Leave it unset and everyone simply brings their own.
 
 | Variable | Purpose |
 |---|---|
-| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | Optional shared fallback key. |
-| `AI_PROVIDER` | Only consulted when both shared keys are set: `anthropic` or `openai`. |
-| `ANTHROPIC_MODEL` / `OPENAI_MODEL` | Override the shared key's model. Per-user keys set their own model in Settings. |
+| `ANTHROPIC_API_KEY` | Optional shared fallback key. |
+| `ANTHROPIC_MODEL` | Override the shared key's model. Per-user keys set their own in Settings. |
 | `AI_DAILY_SCAN_LIMIT` | Scans per member per day on the shared key. Default 100. |
 
 ### What a scan costs, and keeping it bounded
@@ -117,7 +113,6 @@ images.
 
 | Model | Per scan | Per 1,000 scans |
 |---|---|---|
-| GPT-6 Astra | ~$0.064 | ~$64 |
 | Claude Opus 5 *(default)* | ~$0.032 | ~$32 |
 | Claude Sonnet 5 | ~$0.011 | ~$11 |
 | Claude Haiku 4.5 | ~$0.0024 | ~$2.44 |
@@ -133,14 +128,13 @@ run to roughly $130/hour unchecked. Three things bound it:
    limit cannot be raised from the client. Members using their own key are
    exempt, since they are spending their own money.
 2. **Membership.** The endpoint refuses anyone who is not in a collection.
-3. **A provider spend cap.** Set a monthly limit in the Anthropic or OpenAI
-   console. This is the only backstop that holds if something in the app
-   itself is wrong, so set it regardless.
+3. **A provider spend cap.** Set a monthly limit in the Anthropic console
+   (Billing → limits). This is the only backstop that holds if something in
+   the app itself is wrong, so set it regardless.
 
 Run `supabase/add-ai-usage-limit.sql` once to create the counter on an
 existing project; `schema.sql` already includes it for fresh installs.
 
-Defaults are `claude-opus-5` and `gpt-6-astra`; roughly a few cents per scan.
 `api/identify.js` caps each request at 6 photos and 4 MB and refuses anyone who
 is not a signed-in member of a collection, so the endpoint cannot be used by
 strangers who find it.
@@ -275,9 +269,8 @@ build or debug locally instead of via CI.
   `src/pages/CollectionSetup.jsx` — Supabase email/password accounts, then
   create-or-join a shared collection via an invite code (server-side RPCs). The
   Anthropic API key stays per-device in localStorage, never in the database.
-- **AI:** `api/identify.js` is a Vercel serverless function that calls either
-  Claude or GPT behind one request/response contract, so the client is
-  provider-agnostic. `src/lib/ai.js` posts photos to it using the caller's
+- **AI:** `api/identify.js` is a Vercel serverless function that calls Claude.
+  `src/lib/ai.js` posts photos to it using the caller's
   existing Supabase session; the function verifies that session and collection
   membership, then resolves *whose* key pays — the caller's own row in
   `user_ai_keys` first, a deployment-wide env key as fallback. That lookup runs

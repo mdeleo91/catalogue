@@ -3,17 +3,13 @@ import { Button, Card, Field, SectionTitle, inputCls } from './ui'
 import { supabase } from '../lib/supabase'
 import { API_BASE } from '../lib/ai'
 
-const PROVIDERS = [
-  { id: 'anthropic', label: 'Claude (Anthropic)', keyHint: 'sk-ant-…', console: 'console.anthropic.com' },
-  { id: 'openai', label: 'GPT (OpenAI)', keyHint: 'sk-proj-…', console: 'platform.openai.com/api-keys' },
-]
+
 
 // Each member supplies their own provider key, so scanning is billed to
 // whoever does it rather than to whoever deployed the app.
 export default function AiKeyCard() {
   const [saved, setSaved] = useState(undefined) // undefined = loading, null = none
   const [status, setStatus] = useState(null) // which credential a scan would use
-  const [provider, setProvider] = useState('anthropic')
   const [keyDraft, setKeyDraft] = useState('')
   const [modelDraft, setModelDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -28,7 +24,6 @@ export default function AiKeyCard() {
       .limit(1)
       .maybeSingle()
     setSaved(data || null)
-    if (data?.provider) setProvider(data.provider)
 
     try {
       const token = (await supabase.auth.getSession()).data.session?.access_token
@@ -54,7 +49,7 @@ export default function AiKeyCard() {
       const { data: userData } = await supabase.auth.getUser()
       const { error } = await supabase.from('user_ai_keys').upsert({
         user_id: userData.user.id,
-        provider,
+        provider: 'anthropic',
         api_key: key,
         model: modelDraft.trim() || null,
         key_hint: key.slice(-4),
@@ -94,8 +89,6 @@ export default function AiKeyCard() {
     }
   }
 
-  const chosen = PROVIDERS.find((p) => p.id === provider)
-
   return (
     <>
       <SectionTitle>AI identification</SectionTitle>
@@ -110,19 +103,12 @@ export default function AiKeyCard() {
           <div className="text-xs font-semibold text-ink-2">
             {saved ? 'Replace your key' : 'Use your own key'}
           </div>
-          <Field label="Provider">
-            <select className={inputCls} value={provider} onChange={(e) => setProvider(e.target.value)}>
-              {PROVIDERS.map((p) => (
-                <option key={p.id} value={p.id}>{p.label}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="API key">
+          <Field label="Anthropic API key">
             <input
               className={inputCls}
               type="password"
               autoComplete="off"
-              placeholder={chosen.keyHint}
+              placeholder="sk-ant-…"
               value={keyDraft}
               onChange={(e) => setKeyDraft(e.target.value)}
             />
@@ -139,8 +125,9 @@ export default function AiKeyCard() {
             {busy ? 'Saving…' : 'Save key'}
           </Button>
           <p className="text-xs text-ink-3">
-            Get one at {chosen.console}. Your key is stored against your account and used only for
-            your own scans — other members cannot see or spend it.
+            Get one at console.anthropic.com. Your key is stored against your account and used
+            only for your own scans — other members cannot see or spend it, and scanning on your
+            own key has no daily limit.
           </p>
         </div>
 
@@ -161,7 +148,7 @@ export default function AiKeyCard() {
         )}
 
         <p className="text-xs text-ink-3">
-          Photos are sent to your chosen provider only at the moment you tap Identify. Keys live in
+          Photos are sent to Anthropic only at the moment you tap Identify. Keys live in
           this app&rsquo;s database, so whoever administers the Supabase project could technically
           read them — use a key scoped to this app, and revoke it there if you ever stop using
           Catalog.
@@ -173,14 +160,14 @@ export default function AiKeyCard() {
 
 function StatusLine({ saved, status }) {
   if (saved) {
-    const label = PROVIDERS.find((p) => p.id === saved.provider)?.label || saved.provider
     return (
       <div className="text-sm">
         <span className="font-semibold text-good">Using your own key</span>
         <div className="mt-0.5 text-xs text-ink-3">
-          {label}
+          Anthropic
           {saved.key_hint ? ` · ending ${saved.key_hint}` : ''}
           {saved.model ? ` · ${saved.model}` : ''}
+          {' · no daily limit'}
         </div>
       </div>
     )

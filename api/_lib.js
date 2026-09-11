@@ -6,10 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 export const MAX_IMAGES = 6
 export const MAX_TOTAL_BYTES = 4 * 1024 * 1024
 
-export const DEFAULT_MODELS = {
-  anthropic: 'claude-opus-5',
-  openai: 'gpt-6-astra',
-}
+export const DEFAULT_MODEL = 'claude-opus-5'
 
 // Auth is by bearer token and no cookies are involved, so a permissive origin
 // is safe here: a token, not the browser's origin check, is what gates access.
@@ -21,16 +18,8 @@ export function cors(res) {
 }
 
 // The shared fallback key the deployment owner may or may not provide.
-export function appProvider(env = process.env) {
-  const available = {
-    anthropic: Boolean(env.ANTHROPIC_API_KEY),
-    openai: Boolean(env.OPENAI_API_KEY),
-  }
-  const explicit = (env.AI_PROVIDER || '').trim().toLowerCase()
-  if (explicit) return available[explicit] ? explicit : null
-  if (available.anthropic) return 'anthropic'
-  if (available.openai) return 'openai'
-  return null
+export function appKey(env = process.env) {
+  return env.ANTHROPIC_API_KEY || null
 }
 
 // Verifies the caller and that they belong to a collection. Returns either
@@ -78,23 +67,15 @@ export async function resolveCredential(supabase) {
     .maybeSingle()
 
   if (!error && data?.api_key) {
-    return {
-      source: 'user',
-      provider: data.provider,
-      apiKey: data.api_key,
-      model: data.model || DEFAULT_MODELS[data.provider],
-    }
+    return { source: 'user', apiKey: data.api_key, model: data.model || DEFAULT_MODEL }
   }
 
-  const provider = appProvider()
-  if (!provider) return { source: null }
+  const shared = appKey()
+  if (!shared) return { source: null }
   return {
     source: 'app',
-    provider,
-    apiKey: provider === 'anthropic' ? process.env.ANTHROPIC_API_KEY : process.env.OPENAI_API_KEY,
-    model:
-      (provider === 'anthropic' ? process.env.ANTHROPIC_MODEL : process.env.OPENAI_MODEL) ||
-      DEFAULT_MODELS[provider],
+    apiKey: shared,
+    model: process.env.ANTHROPIC_MODEL || DEFAULT_MODEL,
   }
 }
 

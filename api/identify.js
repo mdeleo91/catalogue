@@ -1,5 +1,4 @@
 import Anthropic from '@anthropic-ai/sdk'
-import OpenAI from 'openai'
 import {
   DAILY_SCAN_LIMIT, MAX_IMAGES, MAX_TOTAL_BYTES, NOT_CONFIGURED,
   authenticate, consumeScan, cors, resolveCredential,
@@ -7,10 +6,9 @@ import {
 
 // Server-side AI identification.
 //
-// Whichever key is used, it lives on the server and never reaches a browser
-// or the APK. Each member's own key is preferred, so scanning is billed to
-// whoever does it; a deployment-wide key (ANTHROPIC_API_KEY / OPENAI_API_KEY)
-// is an optional fallback for whoever sets one.
+// The key lives on the server and never reaches a browser or the APK. Each
+// member's own key is preferred, so scanning is billed to whoever does it;
+// ANTHROPIC_API_KEY is an optional shared fallback for whoever sets one.
 
 const SYSTEM = `You identify physical retro video game collection artifacts from photographs: games, magazines, strategy guides, manuals, boxes, consoles, and accessories.
 
@@ -88,8 +86,7 @@ export default async function handler(req, res) {
 
   // 5. Ask the model.
   try {
-    const text =
-      cred.provider === 'anthropic' ? await askClaude(images, cred) : await askOpenAI(images, cred)
+    const text = await askClaude(images, cred)
 
     const parsed = extractJson(text)
     if (!parsed?.title) {
@@ -101,9 +98,9 @@ export default async function handler(req, res) {
     const { confidence = {}, summary = '', ...fields } = parsed
     return res
       .status(200)
-      .json({ fields, confidence, summary, provider: cred.provider, source: cred.source })
+      .json({ fields, confidence, summary, source: cred.source })
   } catch (error) {
-    console.error(`${cred.provider} call failed`, error)
+    console.error('Anthropic call failed', error)
     return res.status(error.httpStatus || 502).json({ error: describeError(cred, error) })
   }
 }
@@ -144,54 +141,26 @@ export async function askClaude(images, cred) {
     .join('\n')
 }
 
-export async function askOpenAI(images, cred) {
-  const client = new OpenAI({ apiKey: cred.apiKey })
-  const completion = await client.chat.completions.create({
-    model: cred.model,
-    max_completion_tokens: 2048,
-    // The system prompt already demands a bare JSON object; this enforces it.
-    response_format: { type: 'json_object' },
-    messages: [
-      { role: 'system', content: SYSTEM },
-      {
-        role: 'user',
-        content: [
-          ...images.map((img) => ({
-            type: 'image_url',
-            image_url: { url: `data:${img.mediaType || 'image/jpeg'};base64,${img.data}` },
-          })),
-          { type: 'text', text: PROMPT },
-        ],
-      },
-    ],
-  })
-  return completion.choices?.[0]?.message?.content || ''
-}
-
 function describeError(cred, error) {
   if (error.declined) return 'The model declined to analyze this image. Try a different photo.'
 
   const status = error?.status
-  const label = cred.provider === 'anthropic' ? 'Anthropic' : 'OpenAI'
-  const whose =
-    cred.source === 'user'
-      ? 'your saved key'
-      : 'the deployment-wide key'
+  const whose = cred.source === 'user' ? 'your saved key' : 'the shared key'
 
   if (status === 401 || status === 403) {
     return cred.source === 'user'
-      ? `${label} rejected your saved API key. Check it under Settings → AI identification.`
-      : `${label} rejected ${whose}.`
+      ? 'Anthropic rejected your saved API key. Check it under Settings → AI identification.'
+      : 'Anthropic rejected the shared key.'
   }
-  if (status === 429) return `Rate limited by ${label} — wait a moment and try again.`
+  if (status === 429) return 'Rate limited by Anthropic — wait a moment and try again.'
   if (status === 400 && /credit|billing|quota/i.test(error?.message || '')) {
-    return `${label} reports no available credit on ${whose}.`
+    return `Anthropic reports no available credit on ${whose}.`
   }
   // Usually a model name that no longer exists or isn't enabled on the account.
   if (status === 404) {
-    return `${label} does not recognise the configured model. Pick a different model under Settings → AI identification.`
+    return 'Anthropic does not recognise the configured model. Pick a different one under Settings → AI identification.'
   }
-  if (status) return `Identification failed (${label} returned ${status}).`
+  if (status) return `Identification failed (Anthropic returned ${status}).`
   return 'Identification failed. Try again.'
 }
 

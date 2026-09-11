@@ -14,7 +14,6 @@ export default async function handler(req, res) {
   const usedToday = cred.source === 'app' ? await readUsage(auth.supabase) : null
   return res.status(200).json({
     source: cred.source,          // 'user' | 'app' | null
-    provider: cred.provider || null,
     model: cred.model || null,
     // Only meaningful on the shared key; own-key scans are unlimited.
     usedToday,
