@@ -1,28 +1,88 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Card } from '../components/ui'
+import CaptureStep from '../components/scan/CaptureStep'
+import ComponentsStep from '../components/scan/ComponentsStep'
+import ConfirmStep from '../components/scan/ConfirmStep'
+import DetailsStep from '../components/scan/DetailsStep'
+import IdentifyingStep from '../components/scan/IdentifyingStep'
+import LocationStep from '../components/scan/LocationStep'
+import ResultStep from '../components/scan/ResultStep'
+import SuccessStep from '../components/scan/SuccessStep'
+import { Card } from '../components/ui'
 import { aiSignedIn, identifyItem } from '../lib/ai'
+import { DEFAULT_COMPONENTS } from '../lib/constants'
+import { uid } from '../lib/id'
 import { fileToDataUrls } from '../lib/image'
+import { useStore } from '../lib/store'
+
+// Capture → Identify → Result → Components → Details → Location → Confirm →
+// Success. Each step owns one decision, so nothing is a wall of fields, and
+// the draft is the single thing carried between them.
+const ORDER = ['capture', 'identifying', 'result', 'components', 'details', 'location', 'confirm', 'success']
+
+const emptyDraft = () => ({
+  mode: 'single',
+  photos: [],
+  fields: {},
+  confidence: {},
+  summary: '',
+  detected: [],
+  components: [],
+  condition: 'Very Good',
+  completeness: 'Incomplete',
+  purchasePrice: '',
+  purchaseDate: '',
+  acquisitionMethod: 'Unknown',
+  source: '',
+  estimatedValue: '',
+  locationId: null,
+  tempStatus: null,
+})
+
+// Merge what the model saw with the standard checklist for the item type, so
+// the user confirms against a full list rather than only what was visible.
+function buildComponents(type, detected = []) {
+  const base = DEFAULT_COMPONENTS[type] || DEFAULT_COMPONENTS.game
+  const extra = detected.filter((d) => !base.includes(d))
+  return [...base, ...extra].map((name) => ({
+    id: uid('comp'),
+    name,
+    present: detected.includes(name),
+    condition: null,
+  }))
+}
 
 export default function Scan() {
   const navigate = useNavigate()
-  const fileInput = useRef(null)
-  const [photos, setPhotos] = useState([]) // [{thumb, full}]
-  const [busy, setBusy] = useState(false)
+  const { dispatch } = useStore()
+  const [step, setStep] = useState('capture')
+  const [draft, setDraft] = useState(emptyDraft)
   const [error, setError] = useState(null)
-  const [aiReady, setAiReady] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [savedId, setSavedId] = useState(null)
+  const [aiReady, setAiReady] = useState(true)
+  const cancelled = useRef(false)
 
   useEffect(() => {
     aiSignedIn().then(setAiReady)
+    return () => {
+      cancelled.current = true
+    }
   }, [])
 
+  const update = useCallback((patch) => setDraft((d) => ({ ...d, ...patch })), [])
+
   const addPhotos = async (e) => {
-    setError(null)
     const files = [...(e.target.files || [])]
     e.target.value = ''
+    if (!files.length) return
     try {
       const converted = await Promise.all(files.map((f) => fileToDataUrls(f)))
-      setPhotos((p) => [...p, ...converted])
+      setDraft((d) => ({
+        ...d,
+        photos: [...d.photos, ...converted].slice(0, 6),
+      }))
     } catch {
       setError('Could not read that image — try another photo.')
     }
@@ -31,92 +91,189 @@ export default function Scan() {
   const identify = async () => {
     setBusy(true)
     setError(null)
+    setStep('identifying')
     try {
-      const { fields, confidence, summary } = await identifyItem(photos.map((p) => p.full))
-      navigate('/items/new', { state: { prefill: fields, confidence, summary, photos } })
+      const { fields, confidence, summary } = await identifyItem(draft.photos.map((p) => p.full))
+      if (cancelled.current) return
+      const type = fields.type || 'game'
+      setDraft((d) => ({
+        ...d,
+        fields: { ...fields, type },
+        confidence,
+        summary,
+        detected: fields.components || [],
+        components: buildComponents(type, fields.components || []),
+        // A complete-looking copy starts at Complete; the components step
+        // corrects it either way.
+        completeness: (fields.components || []).length >= 3 ? 'Near Complete' : 'Incomplete',
+      }))
+      setStep('result')
     } catch (err) {
-      setError(err.message)
+      if (!cancelled.current) setError(err.message)
     } finally {
-      setBusy(false)
+      if (!cancelled.current) setBusy(false)
     }
   }
 
-  const manual = () => navigate('/items/new', { state: { photos } })
+  // Hand everything gathered so far to the manual form rather than losing it.
+  const toManualForm = () => {
+    navigate('/items/new', {
+      state: {
+        prefill: { ...draft.fields, condition: draft.condition, completeness: draft.completeness },
+        confidence: draft.confidence,
+        photos: draft.photos,
+      },
+    })
+  }
 
-  return (
-    <div>
-      <h1 className="text-xl font-bold">Scan</h1>
-      <p className="mt-1 text-sm text-ink-2">
-        Photograph an item — the front of a box, a cartridge, a magazine cover. Add more angles of
-        the <em>same physical item</em> for a better identification.
-      </p>
+  const save = () => {
+    setSaving(true)
+    const num = (v) => (v === '' || v == null ? null : Number(v))
+    const id = uid('item')
+    dispatch({
+      type: 'ADD_ITEM',
+      payload: {
+        id,
+        type: draft.fields.type || 'game',
+        title: (draft.fields.title || 'Untitled item').trim(),
+        platform: draft.fields.platform || null,
+        publisher: draft.fields.publisher || null,
+        developer: draft.fields.developer || null,
+        releaseYear: num(draft.fields.releaseYear),
+        region: draft.fields.region || null,
+        edition: draft.fields.edition || null,
+        genre: draft.fields.genre || null,
+        franchise: draft.fields.franchise || null,
+        issueNumber: num(draft.fields.issueNumber),
+        publicationDate: draft.fields.publicationDate || null,
+        isbn: draft.fields.isbn || null,
+        author: draft.fields.author || null,
+        model: draft.fields.model || null,
+        condition: draft.condition,
+        completeness: draft.completeness,
+        components: draft.components,
+        photos: draft.photos,
+        locationId: draft.locationId,
+        tempStatus: draft.tempStatus,
+        purchasePrice: num(draft.purchasePrice),
+        purchaseDate: draft.purchaseDate || null,
+        acquisitionMethod: draft.acquisitionMethod,
+        source: draft.source || null,
+        estimatedValue: num(draft.estimatedValue),
+        notes: null,
+        aiFields: draft.confidence,
+      },
+    })
+    setSavedId(id)
+    setSaving(false)
+    setStep('success')
+  }
 
-      <input
-        ref={fileInput}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        multiple
-        hidden
-        onChange={addPhotos}
-      />
+  const restart = () => {
+    setDraft(emptyDraft())
+    setSavedId(null)
+    setError(null)
+    setStep('capture')
+  }
 
-      <button
-        onClick={() => fileInput.current?.click()}
-        className="mt-4 flex w-full flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-accent/50 bg-accent/10 py-10 text-accent-soft active:bg-accent/15"
-      >
-        <span className="text-4xl">◉</span>
-        <span className="text-sm font-bold">{photos.length ? 'Add another photo' : 'Take a photo'}</span>
-        <span className="text-xs text-ink-3">or choose from your library</span>
-      </button>
+  const back = () => {
+    const i = ORDER.indexOf(step)
+    if (i <= 0) return navigate(-1)
+    // Identifying is transient; stepping back from the result returns to capture.
+    setStep(ORDER[step === 'result' ? 0 : i - 1])
+  }
 
-      {photos.length > 0 && (
-        <div className="mt-3 flex gap-2 overflow-x-auto">
-          {photos.map((p, i) => (
-            <div key={i} className="relative shrink-0">
-              <img src={p.full} alt={`Photo ${i + 1}`} className="h-24 w-24 rounded-lg border border-line object-cover" />
-              <button
-                onClick={() => setPhotos(photos.filter((_, j) => j !== i))}
-                className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-line bg-surface text-[10px] text-ink"
-                aria-label={`Remove photo ${i + 1}`}
-              >
-                ✕
+  const content = useMemo(() => {
+    switch (step) {
+      case 'identifying':
+        return (
+          <IdentifyingStep
+            photo={draft.photos[0]?.full}
+            error={error}
+            onRetry={identify}
+            onManual={toManualForm}
+          />
+        )
+      case 'result':
+        return <ResultStep draft={draft} onBack={back} onAccept={() => setStep('components')} onReject={toManualForm} />
+      case 'components':
+        return (
+          <ComponentsStep
+            components={draft.components}
+            detected={draft.detected}
+            onToggle={(id) =>
+              update({
+                components: draft.components.map((c) => (c.id === id ? { ...c, present: !c.present } : c)),
+              })
+            }
+            onBack={back}
+            onNext={() => setStep('details')}
+          />
+        )
+      case 'details':
+        return (
+          <DetailsStep
+            draft={draft}
+            onChange={update}
+            onBack={back}
+            onNext={() => setStep('location')}
+            onSaveForLater={toManualForm}
+          />
+        )
+      case 'location':
+        return (
+          <LocationStep
+            draft={draft}
+            onChange={update}
+            onBack={back}
+            onNext={() => setStep('confirm')}
+            onSkip={() => setStep('confirm')}
+          />
+        )
+      case 'confirm':
+        return <ConfirmStep draft={draft} saving={saving} onBack={back} onSave={save} onEdit={toManualForm} />
+      case 'success':
+        return (
+          <SuccessStep
+            title={draft.fields.title || 'Your item'}
+            onView={() => navigate(`/items/${savedId}`)}
+            onAgain={restart}
+            onDone={() => navigate('/collection')}
+          />
+        )
+      default:
+        return (
+          <>
+            {!aiReady && (
+              <Card className="mb-3 border-warn/40 bg-warn/10 text-sm text-warn">
+                Sign in to use AI identification. You can still catalog manually with your photos
+                attached.
+              </Card>
+            )}
+            {error && (
+              <div className="mb-3 rounded-lg border border-bad/40 bg-bad/10 px-3 py-2 text-sm text-bad">
+                {error}
+              </div>
+            )}
+            <CaptureStep
+              photos={draft.photos}
+              mode={draft.mode}
+              busy={busy}
+              onModeChange={(mode) => update({ mode })}
+              onAddPhotos={addPhotos}
+              onRemovePhoto={(i) => update({ photos: draft.photos.filter((_, j) => j !== i) })}
+              onBack={() => navigate(-1)}
+              onNext={aiReady ? identify : toManualForm}
+            />
+            {draft.photos.length > 0 && (
+              <button onClick={toManualForm} className="mt-2 w-full py-1.5 text-sm font-semibold text-ink-3">
+                Skip AI and enter details manually
               </button>
-            </div>
-          ))}
-        </div>
-      )}
+            )}
+          </>
+        )
+    }
+  }, [step, draft, error, busy, saving, savedId, aiReady])
 
-      {error && (
-        <div className="mt-3 rounded-lg border border-bad/40 bg-bad/10 px-3 py-2 text-sm text-bad">
-          {error}
-        </div>
-      )}
-
-      {photos.length > 0 && (
-        <div className="mt-4 space-y-2">
-          {aiReady ? (
-            <Button onClick={identify} disabled={busy} className="w-full">
-              {busy ? 'Identifying…' : `✦ Identify with AI (${photos.length} photo${photos.length > 1 ? 's' : ''})`}
-            </Button>
-          ) : (
-            <Card className="border-warn/40 bg-warn/10 text-sm text-warn">
-              Sign in to your Catalog account to use AI identification. You can still catalog
-              manually with your photos attached.
-            </Card>
-          )}
-          <Button variant="secondary" onClick={manual} className="w-full">
-            Enter details manually
-          </Button>
-        </div>
-      )}
-
-      <div className="mt-8 rounded-xl bg-surface p-4 text-xs leading-relaxed text-ink-2">
-        <div className="font-semibold text-ink">How scanning works</div>
-        1. Photograph → 2. AI identifies the release and pre-fills metadata with per-field
-        confidence → 3. You confirm anything uncertain → 4. Add condition, completeness, and
-        physical location → 5. Saved to the shared collection.
-      </div>
-    </div>
-  )
+  return <div className="pb-4">{content}</div>
 }

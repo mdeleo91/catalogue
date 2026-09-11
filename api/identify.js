@@ -29,6 +29,10 @@ Respond with ONLY a JSON object, no markdown fences, matching:
   "isbn": string|null,
   "author": string|null,
   "model": string|null,
+  "components": array of the physical parts you can actually SEE in the photos,
+    drawn from ["Cartridge/Disc","Box","Manual","Inserts","Map/Poster",
+    "Registration Card","Console","Power Supply","AV Cables","Controller",
+    "Accessory","Magazine","Guide","Tray/Insert"],
   "summary": one-sentence identification,
   "confidence": { "<each populated field>": number between 0 and 1 }
 }
@@ -37,6 +41,8 @@ Rules:
 - Identify the specific release when possible (region, edition).
 - Give honest per-field confidence; use low values when guessing.
 - Multiple photos are different views of the SAME physical item.
+- For "components", list only parts visibly present in the photos. Do not infer
+  a part just because the release normally shipped with it.
 - Use null for anything you cannot determine.`
 
 const PROMPT = 'Identify this item and return the JSON object.'
