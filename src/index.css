@@ -44,3 +44,26 @@ body::before {
 #root { position: relative; z-index: 1; }
 
 * { scrollbar-width: thin; scrollbar-color: var(--color-line) transparent; }
+
+/* Safe areas.
+   Android 15+ and notched iPhones lay the web view out edge to edge, behind
+   the status bar and the gesture bar; `viewport-fit=cover` in index.html
+   exposes their sizes to CSS. env() resolves to 0px where there is no inset,
+   so these rules are inert in a desktop browser and on older Android.
+   Declared unlayered so they win over the Tailwind padding utilities on the
+   same elements. */
+.pad-safe-top {
+  padding-top: calc(0.75rem + env(safe-area-inset-top, 0px));
+}
+.pad-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+/* Clears the fixed bottom nav (6rem) plus whatever the gesture bar takes. */
+.pad-safe-main-bottom {
+  padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+}
+/* Landscape notches eat into the sides. */
+.pad-safe-x {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}

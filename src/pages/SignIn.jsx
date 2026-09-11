@@ -45,7 +45,7 @@ export default function SignIn() {
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-lg flex-col justify-center px-6 pb-16">
+    <div className="pad-safe-x pad-safe-top pad-safe-bottom mx-auto flex min-h-dvh max-w-lg flex-col justify-center px-6">
       <div className="text-center">
         <div className="font-display text-2xl font-bold uppercase tracking-widest">
           Catalog<span className="text-accent">.</span>

@@ -25,8 +25,8 @@ export default function App() {
   const { pathname } = useLocation()
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-lg flex-col">
-      <header className="sticky top-0 z-20 flex items-center justify-between border-b border-line bg-card/95 px-4 py-3 backdrop-blur">
+    <div className="pad-safe-x mx-auto flex min-h-dvh max-w-lg flex-col">
+      <header className="pad-safe-top sticky top-0 z-20 flex items-center justify-between border-b border-line bg-card/95 px-4 pb-3 backdrop-blur">
         <NavLink to="/" className="font-display text-base font-bold uppercase tracking-widest">
           Catalog<span className="text-accent">.</span>
         </NavLink>
@@ -47,7 +47,7 @@ export default function App() {
         </div>
       )}
 
-      <main className="flex-1 px-4 pb-24 pt-4">
+      <main className="pad-safe-main-bottom flex-1 px-4 pt-4">
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/collection" element={<Collection />} />
@@ -63,7 +63,7 @@ export default function App() {
         </Routes>
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-card/95 backdrop-blur">
+      <nav className="pad-safe-bottom pad-safe-x fixed inset-x-0 bottom-0 z-20 border-t border-line bg-card/95 backdrop-blur">
         <div className="mx-auto grid max-w-lg grid-cols-5">
           {tabs.map((tab) => {
             const active = tab.to === '/' ? pathname === '/' : pathname.startsWith(tab.to)

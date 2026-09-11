@@ -13,9 +13,9 @@ export default function Home() {
   return (
     <div>
       <Card className="border-accent/30 bg-gradient-to-br from-accent to-accent-deep text-white">
-        <div className="flex items-baseline justify-between">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3">
           <span className="text-xs font-semibold uppercase tracking-wider opacity-80">Collection</span>
-          <span className="text-[10px] uppercase tracking-wide opacity-70">
+          <span className="whitespace-nowrap text-[10px] uppercase tracking-wide opacity-70">
             Know what you have. Know where it is.
           </span>
         </div>
@@ -43,16 +43,23 @@ export default function Home() {
       </Link>
 
       <SectionTitle>Media</SectionTitle>
-      <div className="grid grid-cols-2 gap-2">
-        {stats.byType.map((t) => (
-          <Link key={t.id} to={`/collection?type=${t.id}`}>
-            <Card className="flex items-baseline justify-between py-3">
-              <span className="text-sm text-ink-2">{t.plural}</span>
-              <span className="text-lg font-bold tabular-nums">{t.count}</span>
-            </Card>
-          </Link>
-        ))}
-      </div>
+      {stats.byType.length === 0 ? (
+        <EmptyState icon="◉" title="Your collection is empty">
+          Tap <strong>Scan something</strong> above to photograph your first game, magazine, or
+          console — it only takes a few seconds per item.
+        </EmptyState>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          {stats.byType.map((t) => (
+            <Link key={t.id} to={`/collection?type=${t.id}`}>
+              <Card className="flex items-baseline justify-between gap-2 py-3">
+                <span className="truncate text-sm text-ink-2">{t.plural}</span>
+                <span className="shrink-0 text-lg font-bold tabular-nums">{t.count}</span>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      )}
 
       <SectionTitle>Locations</SectionTitle>
       <Card className="divide-y divide-line p-0">
