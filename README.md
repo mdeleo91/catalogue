@@ -35,10 +35,18 @@ The app has two modes:
    enabled. Optional: turn off "Confirm email" so accounts work instantly
    (otherwise each account must click a confirmation link first — the app
    handles that flow too).
-4. In Vercel → Project → **Settings → Environment Variables**, add
-   (values are in Supabase → Settings → API):
-   - `VITE_SUPABASE_URL` — the Project URL
-   - `VITE_SUPABASE_ANON_KEY` — the `anon` public key
+4. In Vercel → Project → **Settings → Environment Variables**, add:
+   - `VITE_SUPABASE_URL` — Supabase → **Settings → Data API → Project URL**.
+     It is always `https://<project-ref>.supabase.co`, and the project ref is
+     the id in your dashboard's address bar.
+   - `VITE_SUPABASE_PUBLISHABLE_KEY` — Supabase → **Settings → API Keys →
+     Publishable key** (starts with `sb_publishable_`). This is the
+     browser-safe key that replaced the old `anon` key; on older projects the
+     legacy `anon` JWT works too, under either this name or
+     `VITE_SUPABASE_ANON_KEY`.
+
+   Never put a **secret** key (`sb_secret_…` / `service_role`) in either
+   variable — those bypass row-level security and must stay server-side.
 5. Redeploy. The app now opens with a sign-in screen.
 
 First use: create an account, tap **Start a collection**, and enter your name.
