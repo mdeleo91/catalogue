@@ -38,15 +38,6 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      # Gradle generates a random debug signing key on first build. Caching it
-      # keeps the APK signature stable between runs, so a new build installs
-      # over the previous one instead of demanding an uninstall first.
-      - name: Cache debug signing key
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: debug-keystore-v1
-
       - name: Cache Gradle
         uses: actions/cache@v4
         with:

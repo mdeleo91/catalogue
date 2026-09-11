@@ -138,15 +138,18 @@ Supabase, not on the phone.
 The same card on the website shows a *Download APK* button instead, since
 there's nothing installed to update.
 
-**About signing:** these are debug-signed APKs, which is fine for sideloading
-onto your own devices. The workflow caches the signing key so a new build
-installs over the old one without uninstalling first. GitHub evicts unused
-caches after 7 days, so if you go a while between builds you may need to
-uninstall before installing the next one — collection data is safe either
-way, since it lives in Supabase, not on the phone. For permanently stable
-signing, generate a keystore with `keytool -genkey -v -keystore
-catalog.keystore -alias catalog -keyalg RSA -keysize 2048 -validity 10000`,
-store it as a base64 secret, and switch the workflow to `assembleRelease`.
+**About signing:** every build is signed with the keystore committed at
+`android/app/catalog-signing.jks`, so all builds share one signature and a new
+APK installs straight over the previous one. Left to itself Gradle invents a
+throwaway key per machine, which makes Android reject the upgrade with "App
+not installed" — pinning the keystore is what prevents that.
+
+That key is in the repo on purpose: it is a self-signed key for sideloading a
+personal app, not a credential for any service, and every build needs the same
+one. If these APKs are ever distributed more widely, generate a private
+keystore (`keytool -genkeypair -keystore catalog.jks -alias catalog -keyalg
+RSA -keysize 2048 -validity 10000`), keep it in Actions secrets, and have the
+workflow write it out before building.
 
 ### As an installable web app (no APK)
 
