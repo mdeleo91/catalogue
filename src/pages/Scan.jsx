@@ -10,7 +10,7 @@ import ResultStep from '../components/scan/ResultStep'
 import SuccessStep from '../components/scan/SuccessStep'
 import { Card } from '../components/ui'
 import { aiSignedIn, identifyItem, lookupValue } from '../lib/ai'
-import { DEFAULT_COMPONENTS } from '../lib/constants'
+import { addComponent, buildComponents, inferCompleteness, mergeListingContents } from '../lib/components'
 import { uid } from '../lib/id'
 import { fileToDataUrls } from '../lib/image'
 import { useStore } from '../lib/store'
@@ -27,6 +27,7 @@ const emptyDraft = () => ({
   confidence: {},
   summary: '',
   detected: [],
+  manifestKnown: false,
   components: [],
   condition: 'Very Good',
   completeness: 'Incomplete',
@@ -38,19 +39,6 @@ const emptyDraft = () => ({
   locationId: null,
   tempStatus: null,
 })
-
-// Merge what the model saw with the standard checklist for the item type, so
-// the user confirms against a full list rather than only what was visible.
-function buildComponents(type, detected = []) {
-  const base = DEFAULT_COMPONENTS[type] || DEFAULT_COMPONENTS.game
-  const extra = detected.filter((d) => !base.includes(d))
-  return [...base, ...extra].map((name) => ({
-    id: uid('comp'),
-    name,
-    present: detected.includes(name),
-    condition: null,
-  }))
-}
 
 export default function Scan() {
   const navigate = useNavigate()
@@ -103,16 +91,16 @@ export default function Scan() {
       const { fields, confidence, summary } = await identifyItem(draft.photos.map((p) => p.full))
       if (cancelled.current) return
       const type = fields.type || 'game'
+      const components = buildComponents(type, fields.components || [], fields.manifest)
       setDraft((d) => ({
         ...d,
         fields: { ...fields, type },
         confidence,
         summary,
         detected: fields.components || [],
-        components: buildComponents(type, fields.components || []),
-        // A complete-looking copy starts at Complete; the components step
-        // corrects it either way.
-        completeness: (fields.components || []).length >= 3 ? 'Near Complete' : 'Incomplete',
+        manifestKnown: components.some((c) => c.source === 'release'),
+        components,
+        completeness: inferCompleteness(components, type),
       }))
       setStep('result')
     } catch (err) {
@@ -193,7 +181,16 @@ export default function Scan() {
           type: fields.type,
           present: components.filter((c) => c.present).map((c) => c.name),
         })
-        if (!cancelled.current) setValue({ status: 'ok', data })
+        if (cancelled.current) return
+        setValue({ status: 'ok', data })
+        // Listings describe what a complete copy includes; anything the
+        // checklist is missing is added, never removed.
+        if (data.contents?.length) {
+          setDraft((d) => {
+            const merged = mergeListingContents(d.components, data.contents)
+            return merged === d.components ? d : { ...d, components: merged }
+          })
+        }
       } catch (err) {
         if (!cancelled.current) setValue({ status: 'error', message: err.message, code: err.code })
       }
@@ -237,15 +234,24 @@ export default function Scan() {
       case 'components':
         return (
           <ComponentsStep
+            title={draft.fields.title}
             components={draft.components}
             detected={draft.detected}
+            manifestKnown={draft.manifestKnown}
+            listingsPending={value?.status === 'loading'}
             onToggle={(id) =>
               update({
                 components: draft.components.map((c) => (c.id === id ? { ...c, present: !c.present } : c)),
               })
             }
+            onAdd={(name) => update({ components: addComponent(draft.components, name) })}
             onBack={back}
-            onNext={() => setStep('details')}
+            onNext={() => {
+              // The ticks are the answer to the completeness question; the
+              // details step still lets the user override it.
+              update({ completeness: inferCompleteness(draft.components, draft.fields.type) })
+              setStep('details')
+            }}
           />
         )
       case 'details':

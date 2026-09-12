@@ -130,6 +130,39 @@ existing project; `schema.sql` already includes it for fresh installs.
 If you plan a long cataloging session, raise `AI_DAILY_SCAN_LIMIT` — at the
 default of 100 a day, a 1,000-item collection takes ten days.
 
+### What a complete copy includes
+
+The components step asks about the parts *this release* shipped with, not a
+generic list: for a two-disc PlayStation game it lists Disc 1, Disc 2, the
+longbox, the manual, and the registration card, and for a SNES cartridge it
+lists the box, manual, map, and tray instead.
+
+There is no database of that. Metadata databases cover title and publisher,
+not inserts; price guides define "complete" generically; disc counts are
+catalogued but a fold-out map is community knowledge. So it comes from two
+layers:
+
+1. **The identify call** already knows the release, so it also returns the
+   release's as-sold contents. This is free with the scan and instant, so the
+   components step shows the right list immediately, pre-ticked from what was
+   visible in the photos. An insert the model isn't sure shipped with the
+   release is kept and tagged *unsure* rather than dropped — being asked
+   about a part you might have beats never being asked.
+2. **The value lookup** is already reading sold listings for the exact
+   release, and sellers describe what a complete copy includes. Anything the
+   listings mention that the checklist lacks is added as a *seen in listings*
+   row, and an *unsure* part the listings corroborate loses its tag. This only
+   ever adds; nothing is silently removed.
+
+You can add a part by hand, and the standard list for the item type is the
+fallback when the release isn't known well enough.
+
+Completeness is then inferred from the ticks rather than asked again: media +
+box + manual with a missing insert is *Near Complete*; everything but the
+manual is *Incomplete*, because that's a different market; one disc of two is
+*Parts*. The details step lets you override it, and it's what the value
+lookup prices against.
+
 ### Estimated value, with sources
 
 After you accept a match, Catalog looks up what that exact release is going
@@ -285,9 +318,11 @@ build or debug locally instead of via CI.
   attached.
 - **Collection** — browse, full-text search (titles, publishers, franchises, even
   location paths), filter by type/platform/condition/completeness, and sort.
-- **Items as physical artifacts** — per-item component checklists (cartridge, box,
-  manual, inserts…) drive a completeness percentage separate from condition; each
-  present component can carry its own condition. Duplicate copies are kept as
+- **Items as physical artifacts** — per-item component checklists drive a
+  completeness percentage separate from condition; each present component can
+  carry its own condition. The checklist is the **release's own as-sold
+  contents** — two discs, a longbox, a registration card — not a generic list,
+  so you're asked about the parts this copy could actually have (see below). Duplicate copies are kept as
   distinct physical items and surfaced on each other's detail pages, alongside
   franchise-related items.
 - **Locations** — a structured hierarchy (house → room → storage area → shelf →

@@ -44,6 +44,7 @@ Then respond with ONLY a JSON object, no markdown fences:
   },
   "confidence": "high" | "medium" | "low",
   "note": string,                   // one or two sentences: what drives the spread
+  "contents": [string],             // parts the listings describe a COMPLETE copy of this release including, by collector name ("Disc 1", "Manual", "Registration Card", "Poster") — only what you saw described, not what you assume
   "sources": [
     {
       "label": string,              // e.g. "eBay sold listing" or "PriceCharting"
@@ -61,6 +62,7 @@ Rules:
 - Fill in every completeness level you found evidence for, and null only the ones you genuinely did not. Most releases have at least loose and complete data.
 - Do not blend markets: a loose cartridge and a complete-in-box copy are different items.
 - Sold prices are the best evidence. If you can only find asking prices or guide figures, still give the range — say so in note and set confidence to "low". Returning nothing is worse than returning a clearly-labelled weak answer.
+- For "contents", read what sellers and guides say a complete copy includes. This is how the app learns that a release shipped with a registration card or a map; report only parts actually described in what you retrieved.
 - Only cite URLs you actually retrieved.
 - All figures in USD.`
 
@@ -155,6 +157,7 @@ export default async function handler(req, res) {
         confidence: 'low',
         note: typeof parsed.note === 'string' ? parsed.note : '',
         priced: typeof parsed.priced === 'string' ? parsed.priced : described,
+        contents: cleanContents(parsed.contents),
         sources,
         asOf: new Date().toISOString().slice(0, 10),
         retrievedCount: retrieved.size,
@@ -168,6 +171,7 @@ export default async function handler(req, res) {
       confidence: verifiedRatio < 0.5 ? 'low' : parsed.confidence || 'medium',
       note: typeof parsed.note === 'string' ? parsed.note : '',
       priced: typeof parsed.priced === 'string' ? parsed.priced : described,
+      contents: cleanContents(parsed.contents),
       sources,
       asOf: new Date().toISOString().slice(0, 10),
       retrievedCount: retrieved.size,
@@ -219,6 +223,23 @@ export function cleanAnchors(raw) {
     const high = num(raw[key]?.high)
     if (low == null || high == null || low <= 0 || high < low) continue
     out[key] = { low, high }
+  }
+  return out
+}
+
+// Short, deduplicated, and never more than a checklist's worth.
+export function cleanContents(raw) {
+  if (!Array.isArray(raw)) return []
+  const out = []
+  const seen = new Set()
+  for (const item of raw) {
+    if (typeof item !== 'string') continue
+    const name = item.trim().slice(0, 40)
+    const k = name.toLowerCase()
+    if (!name || seen.has(k)) continue
+    seen.add(k)
+    out.push(name)
+    if (out.length === 12) break
   }
   return out
 }

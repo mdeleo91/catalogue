@@ -29,10 +29,10 @@ Respond with ONLY a JSON object, no markdown fences, matching:
   "isbn": string|null,
   "author": string|null,
   "model": string|null,
-  "components": array of the physical parts you can actually SEE in the photos,
-    drawn from ["Cartridge/Disc","Box","Manual","Inserts","Map/Poster",
-    "Registration Card","Console","Power Supply","AV Cables","Controller",
-    "Accessory","Magazine","Guide","Tray/Insert"],
+  "manifest": array of { "name": string, "confidence": number 0-1 } — everything a
+    complete, as-sold copy of THIS exact release (region, edition) included,
+  "components": array of strings — the physical parts you can actually SEE in
+    the photos, using the exact "name" from manifest where it is the same part,
   "summary": one-sentence identification,
   "confidence": { "<each populated field>": number between 0 and 1 }
 }
@@ -41,6 +41,18 @@ Rules:
 - Identify the specific release when possible (region, edition).
 - Give honest per-field confidence; use low values when guessing.
 - Multiple photos are different views of the SAME physical item.
+- For "manifest", list what a collector would call complete for this release:
+  the media first, one entry per disc or cartridge for multi-disc releases
+  ("Disc 1", "Disc 2"); the packaging by its real form ("Box" for cardboard,
+  "Jewel Case", "Keep Case", "Longbox"); "Manual"; then only the inserts you
+  believe this release shipped with, by their collector name ("Poster", "Map",
+  "Registration Card", "Nintendo Power Insert", "Memory Card Insert",
+  "Precautions Sheet"). Contents vary by region and edition — the manifest is
+  for the release you identified, not the game in general. If you are not
+  sure an insert was included, include it with low confidence rather than
+  leaving it out: the user will confirm each part, and being asked about a
+  part beats never being asked. An empty array means you do not know the
+  release well enough to say.
 - For "components", list only parts visibly present in the photos. Do not infer
   a part just because the release normally shipped with it.
 - Use null for anything you cannot determine.`
