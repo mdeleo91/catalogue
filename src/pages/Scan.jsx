@@ -11,6 +11,7 @@ import SuccessStep from '../components/scan/SuccessStep'
 import { knownSources } from '../components/SourcePicker'
 import { Card } from '../components/ui'
 import { aiSignedIn, identifyItem, lookupValue } from '../lib/ai'
+import { matchMarket } from '../lib/marketApi'
 import {
   addComponent, buildComponents, finalizeComponents, inferCompleteness, mergeListingContents,
   toggleOmitted, validGrade,
@@ -42,9 +43,13 @@ const emptyDraft = () => ({
   acquisitionMethod: 'Unknown',
   source: '',
   estimatedValue: '',
+  market: null,
+  marketCandidates: [],
   locationId: null,
   tempStatus: null,
 })
+
+const pickHistory = (p) => ({ loose: p?.loose ?? null, cib: p?.cib ?? null, new: p?.new ?? null })
 
 export default function Scan() {
   const navigate = useNavigate()
@@ -166,6 +171,7 @@ export default function Scan() {
         issueNumber: num(draft.fields.issueNumber),
         publicationDate: draft.fields.publicationDate || null,
         isbn: draft.fields.isbn || null,
+        upc: draft.fields.upc || null,
         author: draft.fields.author || null,
         model: draft.fields.model || null,
         condition: draft.condition,
@@ -179,7 +185,11 @@ export default function Scan() {
         acquisitionMethod: draft.acquisitionMethod,
         source: draft.source || null,
         estimatedValue: num(draft.estimatedValue),
-        valuation: value?.status === 'ok' ? value.data : null,
+        valueSource: draft.market ? 'market' : value?.status === 'ok' ? 'search' : draft.estimatedValue ? 'manual' : null,
+        market: draft.market
+          ? { ...draft.market, history: [{ at: draft.market.fetchedAt, ...pickHistory(draft.market.prices) }] }
+          : null,
+        valuation: !draft.market && value?.status === 'ok' ? value.data : null,
         notes: null,
         aiFields: draft.confidence,
       },
@@ -217,9 +227,32 @@ export default function Scan() {
     [],
   )
 
-  const acceptMatch = () => {
+  // The price guide first: a stable product id that refreshes cheaply for
+  // the life of the item. The AI search only runs for releases the guide
+  // does not have, so most scans never pay for a web search.
+  const acceptMatch = async () => {
     setStep('components')
-    if (aiReady) runValueLookup(draft.fields, draft.components)
+    if (!aiReady) return
+    setValue({ status: 'loading' })
+    try {
+      const f = draft.fields
+      const found = await matchMarket({ upc: f.upc, title: f.title, platform: f.platform, region: f.region })
+      if (cancelled.current) return
+      if (found?.product) {
+        setDraft((d) => ({
+          ...d,
+          market: { ...found.product, fetchedAt: found.fetchedAt, matchedBy: found.matchedBy },
+          marketCandidates: found.candidates || [],
+        }))
+        setValue({ status: 'ok', data: null })
+        return
+      }
+    } catch (err) {
+      // Not configured, or the guide is down: fall through to the search.
+      if (cancelled.current) return
+      if (err.code !== 'not_configured') console.warn('market match failed', err.message)
+    }
+    runValueLookup(draft.fields, draft.components)
   }
 
   const restart = () => {
@@ -297,6 +330,9 @@ export default function Scan() {
             draft={draft}
             onChange={update}
             value={value}
+            onPickCandidate={(c) =>
+              update({ market: { ...c, fetchedAt: draft.market?.fetchedAt, matchedBy: 'user' } })
+            }
             onRetryValue={() => runValueLookup(draft.fields, draft.components)}
             saving={saving}
             onBack={back}

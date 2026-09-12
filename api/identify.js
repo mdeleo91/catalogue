@@ -27,6 +27,7 @@ Respond with ONLY a JSON object, no markdown fences, matching:
   "issueNumber": number|null,
   "publicationDate": "YYYY-MM-DD"|null,
   "isbn": string|null,
+  "upc": string|null,              // the barcode digits if legible in any photo
   "author": string|null,
   "model": string|null,
   "manifest": array of { "name": string, "confidence": number 0-1 } — everything a
@@ -70,6 +71,8 @@ Rules:
   visible flaws in a small photo. Put the flaws you saw in "notes" so the user
   can check them; if the photos do not show enough to grade, set overall to
   null rather than guessing.
+- For "upc", transcribe the barcode number only if every digit is legible;
+  it is used as an exact key, so a guessed digit is worse than null.
 - Use null for anything you cannot determine.`
 
 const PROMPT = 'Identify this item and return the JSON object.'

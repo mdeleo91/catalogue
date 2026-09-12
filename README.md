@@ -96,6 +96,7 @@ member's usage for the day.
 | `ANTHROPIC_MODEL` | Override the model. Default `claude-opus-5`. |
 | `AI_DAILY_SCAN_LIMIT` | Scans per member per day. Default 100. |
 | `AI_VALUE_LOOKUP` | Set to `off` to turn off the market-value search. Default on. See below — it is the costly half. |
+| `PRICECHARTING_TOKEN` | PriceCharting API token for live prices. See *Live market prices*. |
 
 ### What a scan costs, and keeping it bounded
 
@@ -190,6 +191,57 @@ every source already on an item in the collection, and a typed addition that
 matches an existing one by case, spacing, or punctuation — "EBAY", "e bay",
 "E-Bay" — becomes that existing one, so the collection never ends up with
 three spellings of eBay to filter by.
+
+### Live market prices
+
+Every item can carry a **live price** — the current market figure for that
+release, refreshed as the market moves — and the app's estimated values and
+analytics follow it.
+
+The source is [PriceCharting](https://www.pricecharting.com), the price
+guide for this hobby: loose, complete-in-box, new, graded, box-only and
+manual-only figures per release, recomputed daily from eBay sold listings.
+It's the database the question "what is this worth right now" actually has
+an answer in, and it's what most other price sources are downstream of. The
+API needs a paid PriceCharting subscription; set the token as
+`PRICECHARTING_TOKEN` (server-side, no `VITE_` prefix) and redeploy.
+**Settings → Market prices** then runs a real test lookup and shows what came
+back, so a bad token or a changed API is visible there rather than as
+silently empty prices.
+
+How it works:
+
+- **Match once, refresh cheaply.** When a scan is accepted, the item is
+  matched to a guide product — by barcode when the photos showed one, which
+  is exact, otherwise by title ranked against the platform and region. That
+  gives it a stable product id. From then on a refresh is a lookup by id:
+  no AI, no web search, a fraction of a cent. The review step shows the
+  match and lets you pick a different candidate ("Not the right product?")
+  if it chose, say, the Greatest Hits reissue.
+- **The number for *your* copy.** The guide gives one figure per completeness
+  (a median of recent sales). The app picks the figure for the item's
+  completeness — including box-only and manual-only, which a listing search
+  could never price — and applies an explicit condition factor: Mint ×1.3,
+  Near Mint ×1.2, Excellent ×1.1, Very Good ×1.0, Good ×0.9, Fair ×0.75,
+  Poor ×0.6. That factor is this app's stated rule, not market data, and the
+  card says so. It lives in `src/lib/market.js` to be argued with in one place.
+- **It fluctuates.** Prices more than a day old are re-read in the background
+  when a signed-in member opens the app (a few at a time, at most one sweep
+  per device every six hours), and the results sync to the shared collection
+  like any other change. Each item keeps a bounded price history, and its
+  page shows the current figure with the change since the last distinct
+  price — ▲ $5 (4%) — and when it was last checked, plus a *Refresh* button.
+  Estimated values you set by hand are never overwritten.
+- **Existing collections.** Settings shows how many items are matched,
+  unmatched and stale, with *Refresh all prices* and *Match unmatched items*
+  to bring an existing collection onto the guide. An item's page also has
+  *Match to price guide* for one-offs.
+
+Without a token nothing breaks: scans fall back to the AI web search below,
+and the item page simply offers nothing to refresh. With a token, the AI
+search only runs for releases the guide doesn't cover — which also means the
+"seen in listings" corroboration of a release's parts (above) only happens
+for those items.
 
 ### Estimated value, with sources
 

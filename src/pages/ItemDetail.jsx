@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import MarketSection from '../components/MarketSection'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import LocationPicker from '../components/LocationPicker'
 import { Button, Card, CompletenessBadge, ConditionBadge, SectionTitle } from '../components/ui'
@@ -165,6 +166,8 @@ export default function ItemDetail() {
           />
         )}
       </Card>
+
+      <MarketSection item={item} />
 
       {item.valuation?.sources?.length > 0 && (
         <>

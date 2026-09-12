@@ -19,7 +19,7 @@ export class AiUnavailableError extends Error {
   }
 }
 
-async function accessToken() {
+export async function accessToken() {
   if (!supabase) return null
   const { data } = await supabase.auth.getSession()
   return data.session?.access_token || null

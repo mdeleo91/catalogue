@@ -10,6 +10,7 @@ import Analytics from './pages/Analytics'
 import Wishlist from './pages/Wishlist'
 import Settings from './pages/Settings'
 import { useCurrentUser, useStore } from './lib/store'
+import { useMarketRefresh } from './lib/useMarketRefresh'
 
 const tabs = [
   { to: '/', label: 'Home', icon: '⌂' },
@@ -21,7 +22,9 @@ const tabs = [
 
 export default function App() {
   const user = useCurrentUser()
-  const { syncError } = useStore()
+  const { state, dispatch, syncError } = useStore()
+  // Live prices: re-read stale guide figures in the background on open.
+  useMarketRefresh(state, dispatch)
   const { pathname } = useLocation()
 
   return (

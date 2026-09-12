@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { currency } from '../../lib/constants'
+import { CONDITION_ADJUST, marketValueFor } from '../../lib/market'
 import { valueFor } from '../../lib/valuation'
 import { inputCls } from '../ui'
 
@@ -12,10 +13,18 @@ const TONE = { high: 'text-good', medium: 'text-warn', low: 'text-ink-3' }
 // condition and completeness the user picked, recalculated as they change
 // them. Typing a number is the fallback for when the search finds nothing,
 // not the default way in.
-export default function ValueCard({ state, condition, completeness, value, onChange, onRetry }) {
+// Two sources, one card. A price-guide match (PriceCharting) is the primary:
+// a median of recent sales per completeness, adjusted for condition by an
+// explicit house factor. The AI web search is the fallback for releases the
+// guide does not cover, positioned inside the range it found.
+export default function ValueCard({
+  state, market, candidates, onPickCandidate, condition, completeness, value, onChange, onRetry,
+}) {
   const [manual, setManual] = useState(false)
+  const [picking, setPicking] = useState(false)
   const data = state?.status === 'ok' ? state.data : null
-  const priced = data ? valueFor(data, { condition, completeness }) : null
+  const fromGuide = market ? marketValueFor(market, { condition, completeness }) : null
+  const priced = fromGuide || (data ? valueFor(data, { condition, completeness }) : null)
   const derived = priced?.amount ?? null
 
   // Keep the stored value in step with the derived one as condition and
@@ -24,6 +33,90 @@ export default function ValueCard({ state, condition, completeness, value, onCha
     if (manual || derived == null) return
     onChange(String(derived))
   }, [derived, manual])
+
+  if (market) {
+    return (
+      <Shell>
+        <div className="flex items-baseline justify-between">
+          <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">Estimated value</span>
+          <span className="text-[11px] font-semibold text-good">price guide</span>
+        </div>
+        {fromGuide ? (
+          <>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className="text-3xl font-bold tabular-nums">
+                {currency(manual && value !== '' ? Number(value) : fromGuide.amount)}
+              </span>
+              <span className="text-xs text-ink-3">guide {currency(fromGuide.guide)}</span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-ink-3">
+              {fromGuide.basis}
+              {fromGuide.factor !== 1 && ` · ${fromGuide.condition} ×${fromGuide.factor}`}
+              {fromGuide.approximate && ' — closest figure the guide has, not an exact match'}
+            </p>
+          </>
+        ) : (
+          <p className="mt-1 text-xs text-ink-3">
+            The guide has no figure for a {(completeness || 'copy').toLowerCase()} copy of this release.
+          </p>
+        )}
+        <a href={market.url} target="_blank" rel="noreferrer" className="mt-2 block truncate text-xs text-accent">
+          {market.name}{market.console ? ` · ${market.console}` : ''} on PriceCharting
+        </a>
+        <GuidePrices prices={market.prices} />
+        {candidates?.length > 1 && (
+          <button onClick={() => setPicking((p) => !p)} className="mt-2 text-xs font-semibold text-ink-3 underline">
+            {picking ? 'Keep this one' : 'Not the right product?'}
+          </button>
+        )}
+        {picking && (
+          <div className="mt-2 divide-y divide-line overflow-hidden rounded-lg border border-line">
+            {candidates.map((c) => (
+              <button
+                key={c.productId}
+                onClick={() => {
+                  onPickCandidate(c)
+                  setPicking(false)
+                }}
+                className={`flex w-full items-baseline justify-between gap-2 px-2.5 py-2 text-left text-xs ${
+                  c.productId === market.productId ? 'bg-accent/10' : ''
+                }`}
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {c.name} <span className="text-ink-3">· {c.console}</span>
+                </span>
+                <span className="shrink-0 tabular-nums text-ink-2">{c.prices?.cib != null ? `CIB ${currency(c.prices.cib)}` : ''}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {fromGuide && (manual ? (
+          <div className="mt-3">
+            <ManualEntry value={value} onChange={onChange} bare />
+            <button
+              onClick={() => {
+                setManual(false)
+                onChange(String(fromGuide.amount))
+              }}
+              className="mt-1 text-xs font-semibold text-accent"
+            >
+              Use the guide value instead
+            </button>
+          </div>
+        ) : (
+          <button onClick={() => setManual(true)} className="mt-3 text-xs font-semibold text-ink-3 underline">
+            Set a different value
+          </button>
+        ))}
+        {!fromGuide && <ManualEntry value={value} onChange={onChange} bare />}
+        <p className="mt-2 text-[11px] text-ink-3">
+          Guide prices are medians of recent sales and refresh daily. The condition factor
+          ({Object.entries(CONDITION_ADJUST).map(([k, v]) => `${k} ×${v}`).join(', ')}) is this
+          app's rule, not market data. An estimate for planning, not an appraisal.
+        </p>
+      </Shell>
+    )
+  }
 
   if (state?.status === 'loading') {
     return (
@@ -124,6 +217,23 @@ export default function ValueCard({ state, condition, completeness, value, onCha
         estimate for planning, not an appraisal or a guaranteed resale price.
       </p>
     </Shell>
+  )
+}
+
+function GuidePrices({ prices }) {
+  const rows = [
+    ['Loose', prices?.loose], ['CIB', prices?.cib], ['New', prices?.new],
+    ['Box only', prices?.boxOnly], ['Manual only', prices?.manualOnly],
+  ].filter(([, v]) => v != null)
+  if (!rows.length) return null
+  return (
+    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 border-t border-line pt-2 text-[11px] text-ink-3">
+      {rows.map(([k, v]) => (
+        <span key={k}>
+          {k} <span className="font-semibold tabular-nums text-ink-2">{currency(v)}</span>
+        </span>
+      ))}
+    </div>
   )
 }
 

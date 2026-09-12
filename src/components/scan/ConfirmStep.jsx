@@ -16,7 +16,9 @@ function Row({ label, value }) {
 }
 
 // Screen 9. Last look before anything is written to the collection.
-export default function ConfirmStep({ draft, onChange, value, onRetryValue, onSave, onBack, onEdit, saving }) {
+export default function ConfirmStep({
+  draft, onChange, value, onPickCandidate, onRetryValue, onSave, onBack, onEdit, saving,
+}) {
   const { state } = useStore()
   const { fields, photos, components } = draft
   const counted = components.filter((c) => !c.omitted)
@@ -46,6 +48,9 @@ export default function ConfirmStep({ draft, onChange, value, onRetryValue, onSa
       <div className="mt-3">
         <ValueCard
           state={value}
+          market={draft.market}
+          candidates={draft.marketCandidates}
+          onPickCandidate={onPickCandidate}
           condition={draft.condition}
           completeness={draft.completeness}
           value={draft.estimatedValue}

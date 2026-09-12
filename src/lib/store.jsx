@@ -83,6 +83,17 @@ function reducer(state, { type, payload }) {
       }
     }
 
+    // A price refresh is not an edit anyone made: it patches items without
+    // touching the activity log, so the history stays about people.
+    case 'REFRESH_MARKET': {
+      const patches = payload || {}
+      if (!Object.keys(patches).length) return state
+      return {
+        ...state,
+        items: state.items.map((i) => (patches[i.id] ? { ...i, ...patches[i.id], updatedAt: now() } : i)),
+      }
+    }
+
     case 'DELETE_ITEM': {
       const prev = state.items.find((i) => i.id === payload)
       if (!prev) return state
