@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import SourcePicker, { knownSources } from '../components/SourcePicker'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import LocationPicker from '../components/LocationPicker'
 import { Button, ConfidenceBadge, Field, SectionTitle, inputCls } from '../components/ui'
@@ -309,7 +310,11 @@ export default function ItemForm() {
           </select>
         </Field>
         <Field label="Source / seller">
-          <input className={inputCls} value={form.source || ''} onChange={set('source')} />
+          <SourcePicker
+            value={form.source || ''}
+            onChange={(v) => setForm((f) => ({ ...f, source: v }))}
+            known={knownSources(state.items)}
+          />
         </Field>
         <Field label="Purchase date">
           <input className={inputCls} type="date" value={form.purchaseDate || ''} onChange={set('purchaseDate')} />

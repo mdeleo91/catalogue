@@ -157,11 +157,39 @@ layers:
 You can add a part by hand, and the standard list for the item type is the
 fallback when the release isn't known well enough.
 
-Completeness is then inferred from the ticks rather than asked again: media +
-box + manual with a missing insert is *Near Complete*; everything but the
-manual is *Incomplete*, because that's a different market; one disc of two is
-*Parts*. The details step lets you override it, and it's what the value
-lookup prices against.
+Each row has three states, not two: present, missing, or **omitted**. Omit
+is for when the discovery was wrong — the release never shipped with the
+part — and an omitted part leaves the completeness denominator entirely
+instead of reading as a missing piece. It stays on screen struck through
+with a *Restore* link, and is dropped from the item when saved.
+
+Completeness is then inferred from the ticks rather than asked: media + box +
+manual with a missing insert is *Near Complete*; everything but the manual is
+*Incomplete*, because that's a different market; one disc of two is *Parts*.
+It's shown live on the components step and is what the value lookup prices
+against.
+
+### Condition graded from the photos
+
+The same identify call grades the copy the way a collector would from what's
+visible — a cracked hinge, a crushed corner, creased artwork, label wear —
+and says what it saw. The result step shows the grade with those
+observations; tap *Change* to disagree, and the app remembers what the photos
+suggested. It also grades each part it can see, so the box can be *Fair* while
+the cartridge is *Very Good*; those per-part grades are saved on the item.
+When the photos don't show enough to grade from, it says so and asks rather
+than guessing.
+
+Between the two, the scan asks you only what the photos can't answer: the
+details step is purchase price, date, how acquired, and source. Condition
+and completeness are discovered and confirmed on the earlier steps, and the
+value follows from them on the review step.
+
+**Source** is a picker, not a text field. It offers a fixed vocabulary plus
+every source already on an item in the collection, and a typed addition that
+matches an existing one by case, spacing, or punctuation — "EBAY", "e bay",
+"E-Bay" — becomes that existing one, so the collection never ends up with
+three spellings of eBay to filter by.
 
 ### Estimated value, with sources
 

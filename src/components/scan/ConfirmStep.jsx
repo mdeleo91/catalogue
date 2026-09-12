@@ -1,5 +1,6 @@
 import { Button } from '../ui'
 import { StepHeader } from './ScanChrome'
+import ValueCard from './ValueCard'
 import { completenessPercent, currency, typeLabel } from '../../lib/constants'
 import { locationPath } from '../../lib/locations'
 import { useStore } from '../../lib/store'
@@ -15,10 +16,11 @@ function Row({ label, value }) {
 }
 
 // Screen 9. Last look before anything is written to the collection.
-export default function ConfirmStep({ draft, onSave, onBack, onEdit, saving }) {
+export default function ConfirmStep({ draft, onChange, value, onRetryValue, onSave, onBack, onEdit, saving }) {
   const { state } = useStore()
   const { fields, photos, components } = draft
-  const present = components.filter((c) => c.present).length
+  const counted = components.filter((c) => !c.omitted)
+  const present = counted.filter((c) => c.present).length
 
   return (
     <div>
@@ -39,16 +41,29 @@ export default function ConfirmStep({ draft, onSave, onBack, onEdit, saving }) {
         </div>
       </div>
 
+      {/* Derived from the discovered condition and the confirmed parts —
+          shown here, where the user can see all three together. */}
+      <div className="mt-3">
+        <ValueCard
+          state={value}
+          condition={draft.condition}
+          completeness={draft.completeness}
+          value={draft.estimatedValue}
+          onChange={(v) => onChange({ estimatedValue: v })}
+          onRetry={onRetryValue}
+        />
+      </div>
+
       <div className="mt-3 divide-y divide-line overflow-hidden rounded-xl border border-line bg-card">
         <Row label="Condition" value={draft.condition} />
         <Row
           label="Completeness"
-          value={`${draft.completeness} · ${present} of ${components.length} (${completenessPercent(components)}%)`}
+          value={`${draft.completeness} · ${present} of ${counted.length} (${completenessPercent(components)}%)`}
         />
         <Row label="Purchase price" value={draft.purchasePrice ? currency(Number(draft.purchasePrice)) : null} />
         <Row label="Purchase date" value={draft.purchaseDate} />
+        <Row label="How acquired" value={draft.acquisitionMethod !== 'Unknown' ? draft.acquisitionMethod : null} />
         <Row label="Source" value={draft.source} />
-        <Row label="Estimated value" value={draft.estimatedValue ? `${currency(Number(draft.estimatedValue))} (estimate)` : null} />
         <Row
           label="Location"
           value={

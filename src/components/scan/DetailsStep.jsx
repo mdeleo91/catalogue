@@ -1,16 +1,18 @@
-import { Chip, StepFooter, StepHeader } from './ScanChrome'
-import ValueCard from './ValueCard'
+import { StepFooter, StepHeader } from './ScanChrome'
+import SourcePicker from '../SourcePicker'
 import { Field, inputCls } from '../ui'
-import { ACQUISITION_METHODS, COMPLETENESS_STATES, CONDITIONS } from '../../lib/constants'
+import { ACQUISITION_METHODS } from '../../lib/constants'
 
-// Screen 5. Everything here is what the AI cannot know from a photograph.
-export default function DetailsStep({ draft, onChange, onNext, onBack, onSaveForLater, value, onRetryValue }) {
+// Screen 5. Only what the photos cannot tell us: how this copy came to be
+// yours. Condition and completeness were discovered on the earlier steps, and
+// the value follows from them on the next.
+export default function DetailsStep({ draft, onChange, onNext, onBack, onSaveForLater, knownSources }) {
   return (
     <div>
       <StepHeader
         onBack={onBack}
-        title="Add details"
-        subtitle="Tell us about your specific copy."
+        title="Purchase info"
+        subtitle="How this copy came to you. All optional."
         action={
           <button onClick={onSaveForLater} className="text-sm font-semibold text-accent">
             Save for later
@@ -18,31 +20,6 @@ export default function DetailsStep({ draft, onChange, onNext, onBack, onSaveFor
         }
       />
 
-      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3">Condition</div>
-      <div className="grid grid-cols-3 gap-2">
-        {CONDITIONS.map((c) => (
-          <Chip key={c} selected={draft.condition === c} onClick={() => onChange({ condition: c })}>
-            {c}
-          </Chip>
-        ))}
-      </div>
-
-      <div className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-ink-3">
-        Completeness
-      </div>
-      <select
-        className={inputCls}
-        value={draft.completeness}
-        onChange={(e) => onChange({ completeness: e.target.value })}
-      >
-        {COMPLETENESS_STATES.map((c) => (
-          <option key={c}>{c}</option>
-        ))}
-      </select>
-
-      <div className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-ink-3">
-        Purchase info <span className="font-normal normal-case text-ink-3">(optional)</span>
-      </div>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Purchase price ($)">
           <input
@@ -73,26 +50,9 @@ export default function DetailsStep({ draft, onChange, onNext, onBack, onSaveFor
           </select>
         </Field>
         <Field label="Source">
-          <input
-            className={inputCls}
-            placeholder="Local game store"
-            value={draft.source}
-            onChange={(e) => onChange({ source: e.target.value })}
-          />
+          <SourcePicker value={draft.source} onChange={(v) => onChange({ source: v })} known={knownSources} />
         </Field>
       </div>
-
-      <div className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-ink-3">
-        Value
-      </div>
-      <ValueCard
-        state={value}
-        condition={draft.condition}
-        completeness={draft.completeness}
-        value={draft.estimatedValue}
-        onChange={(v) => onChange({ estimatedValue: v })}
-        onRetry={onRetryValue}
-      />
 
       <StepFooter primary="Continue" onPrimary={onNext} />
     </div>

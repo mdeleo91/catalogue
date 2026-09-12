@@ -41,7 +41,16 @@ const row = (name, extra = {}) => ({ id: uid('comp'), name, present: false, cond
 // standard list for the item type. Parts the model saw in the photos are
 // pre-ticked, matched by alias so "Disc" ticks "Disc 1"-style rows only when
 // the name is genuinely the same part.
-export function buildComponents(type, detected = [], manifest = []) {
+const GRADES = ['Mint', 'Near Mint', 'Excellent', 'Very Good', 'Good', 'Fair', 'Poor']
+
+// The grade the model gave a specific part from the photos, if any.
+function gradeFor(name, parts) {
+  if (!Array.isArray(parts)) return {}
+  const p = parts.find((x) => x && sameName(x.name, name) && GRADES.includes(x.grade))
+  return p ? { condition: p.grade, conditionNote: typeof p.note === 'string' ? p.note : null } : {}
+}
+
+export function buildComponents(type, detected = [], manifest = [], parts = []) {
   const seen = (name) => detected.some((d) => sameName(d, name))
   const list = Array.isArray(manifest)
     ? manifest.filter((m) => m && typeof m.name === 'string' && m.name.trim())
@@ -55,20 +64,40 @@ export function buildComponents(type, detected = [], manifest = []) {
         source: 'release',
         // Below this the model was guessing about the insert; the row says so.
         unsure: typeof m.confidence === 'number' && m.confidence < 0.6,
+        ...gradeFor(m.name, parts),
       }),
     )
   } else {
     const base = DEFAULT_COMPONENTS[type] || DEFAULT_COMPONENTS.game
-    rows = base.map((name) => row(name, { present: seen(name), source: 'standard' }))
+    rows = base.map((name) => row(name, { present: seen(name), source: 'standard', ...gradeFor(name, parts) }))
   }
 
   // Anything seen in the photos that neither list mentions still belongs on
   // this copy's checklist.
   for (const d of detected) {
-    if (!rows.some((r) => sameName(r.name, d))) rows.push(row(d, { present: true, source: 'photo' }))
+    if (!rows.some((r) => sameName(r.name, d))) {
+      rows.push(row(d, { present: true, source: 'photo', ...gradeFor(d, parts) }))
+    }
   }
   return rows
 }
+
+// "The release never shipped with this" — the discovery was wrong about the
+// part, so it stops counting toward completeness without being deleted, and
+// can be restored if the user changes their mind.
+export function toggleOmitted(components, id) {
+  return components.map((c) => (c.id === id ? { ...c, omitted: !c.omitted, present: false } : c))
+}
+
+// What to actually save: omitted rows were never part of the copy, and the
+// scan-time hints have done their job.
+export function finalizeComponents(components) {
+  return components
+    .filter((c) => !c.omitted)
+    .map(({ unsure, omitted, ...c }) => c)
+}
+
+export const validGrade = (g) => (GRADES.includes(g) ? g : null)
 
 // Listings evidence arrives later and only ever adds: a part that sellers
 // describe a complete copy including, which the checklist lacks, becomes an
@@ -97,7 +126,8 @@ const isMedia = (name) => ALIAS[key(name)] === 'media' || /\b(disc|cartridge|car
 
 // Derives the completeness state from the ticks, so the user is not asked the
 // same question twice and the value lookup prices the right market.
-export function inferCompleteness(components, type = 'game') {
+export function inferCompleteness(all, type = 'game') {
+  const components = all.filter((c) => !c.omitted)
   const total = components.length
   const present = components.filter((c) => c.present)
   if (!total || !present.length) return 'Incomplete'

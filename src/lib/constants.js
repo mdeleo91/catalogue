@@ -32,6 +32,14 @@ export const REGIONS = ['North America (NTSC-U)', 'Japan (NTSC-J)', 'Europe (PAL
 
 export const ACQUISITION_METHODS = ['Purchase', 'Trade', 'Gift', 'Found', 'Original Owner', 'Unknown']
 
+// Where copies come from. A fixed vocabulary plus whatever the collection
+// already uses, so "eBay", "EBAY" and "E bay" never become three sources.
+export const SOURCES = [
+  'eBay', 'Local game store', 'Retro game convention', 'Facebook Marketplace', 'Mercari',
+  'Craigslist', 'Garage sale', 'Flea market', 'Thrift store', 'Friend or family', 'Amazon',
+  'GameStop', 'Original purchase',
+]
+
 export const TEMP_STATUSES = [
   'On Display', 'In Transit', 'Being Repaired', 'Being Photographed',
   'On Loan', 'At Convention', 'Temporary Storage', 'Unknown Location',
@@ -74,10 +82,13 @@ export const LIBRARY_SIZES = {
 
 export const conditionRank = (c) => CONDITIONS.indexOf(c) // 0 = Mint
 
+// A part the release never shipped with (omitted during the scan) is not a
+// missing part, so it is left out of the denominator.
 export function completenessPercent(components) {
-  if (!components || components.length === 0) return null
-  const present = components.filter((c) => c.present).length
-  return Math.round((present / components.length) * 100)
+  const counted = (components || []).filter((c) => !c.omitted)
+  if (counted.length === 0) return null
+  const present = counted.filter((c) => c.present).length
+  return Math.round((present / counted.length) * 100)
 }
 
 export const currency = (n) =>

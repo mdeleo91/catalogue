@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { Button } from '../ui'
-import { StepHeader } from './ScanChrome'
-import { typeLabel } from '../../lib/constants'
+import { Chip, StepHeader } from './ScanChrome'
+import { CONDITIONS, typeLabel } from '../../lib/constants'
 
 const ROWS = [
   ['Publisher', 'publisher'],
@@ -14,8 +15,11 @@ const ROWS = [
 
 // Screen 4. Overall confidence is the lowest per-field score the model gave,
 // so the badge reflects the weakest part of the match rather than the best.
-export default function ResultStep({ draft, onAccept, onReject, onBack }) {
+export default function ResultStep({ draft, onChange, onAccept, onReject, onBack }) {
   const { fields, confidence, photos, summary } = draft
+  // The chips only unfold when the user disagrees with the photo grade, or
+  // when the photos were not enough to grade from.
+  const [editing, setEditing] = useState(!draft.conditionSuggested)
   const scores = Object.values(confidence || {}).filter((n) => typeof n === 'number')
   const overall = scores.length ? Math.round(Math.min(...scores) * 100) : null
   const tone = overall == null ? 'text-ink-3' : overall >= 90 ? 'text-good' : overall >= 70 ? 'text-warn' : 'text-bad'
@@ -66,6 +70,48 @@ export default function ResultStep({ draft, onAccept, onReject, onBack }) {
             </div>
           )
         })}
+      </div>
+
+      <div className="mt-3 rounded-xl border border-line bg-card p-3">
+        <div className="flex items-baseline justify-between">
+          <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">Condition</span>
+          {!editing && (
+            <button onClick={() => setEditing(true)} className="text-xs font-semibold text-accent">
+              Change
+            </button>
+          )}
+        </div>
+        {draft.conditionSuggested ? (
+          <p className="mt-1 text-sm">
+            <span className="font-semibold">{draft.condition}</span>
+            {draft.conditionNotes?.length > 0 && (
+              <span className="text-ink-2"> — {draft.conditionNotes.join('; ')}</span>
+            )}
+          </p>
+        ) : (
+          <p className="mt-1 text-xs text-ink-3">
+            The photos don't show enough to grade from — pick the condition yourself.
+          </p>
+        )}
+        {draft.conditionSuggested && draft.condition !== draft.conditionSuggested && (
+          <p className="mt-0.5 text-[11px] text-ink-3">Photos suggested {draft.conditionSuggested}.</p>
+        )}
+        {editing && (
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {CONDITIONS.map((c) => (
+              <Chip
+                key={c}
+                selected={draft.condition === c}
+                onClick={() => {
+                  onChange({ condition: c })
+                  if (draft.conditionSuggested) setEditing(false)
+                }}
+              >
+                {c}
+              </Chip>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="mt-5 space-y-2">

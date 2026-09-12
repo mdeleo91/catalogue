@@ -8,9 +8,13 @@ import IdentifyingStep from '../components/scan/IdentifyingStep'
 import LocationStep from '../components/scan/LocationStep'
 import ResultStep from '../components/scan/ResultStep'
 import SuccessStep from '../components/scan/SuccessStep'
+import { knownSources } from '../components/SourcePicker'
 import { Card } from '../components/ui'
 import { aiSignedIn, identifyItem, lookupValue } from '../lib/ai'
-import { addComponent, buildComponents, inferCompleteness, mergeListingContents } from '../lib/components'
+import {
+  addComponent, buildComponents, finalizeComponents, inferCompleteness, mergeListingContents,
+  toggleOmitted, validGrade,
+} from '../lib/components'
 import { uid } from '../lib/id'
 import { fileToDataUrls } from '../lib/image'
 import { useStore } from '../lib/store'
@@ -30,6 +34,8 @@ const emptyDraft = () => ({
   manifestKnown: false,
   components: [],
   condition: 'Very Good',
+  conditionSuggested: null,
+  conditionNotes: [],
   completeness: 'Incomplete',
   purchasePrice: '',
   purchaseDate: '',
@@ -42,7 +48,7 @@ const emptyDraft = () => ({
 
 export default function Scan() {
   const navigate = useNavigate()
-  const { dispatch } = useStore()
+  const { state, dispatch } = useStore()
   const [step, setStep] = useState('capture')
   const [draft, setDraft] = useState(emptyDraft)
   const [error, setError] = useState(null)
@@ -67,6 +73,17 @@ export default function Scan() {
   }, [])
 
   const update = useCallback((patch) => setDraft((d) => ({ ...d, ...patch })), [])
+  // Completeness is never asked; it follows the parts. Every change to the
+  // checklist goes through here so the two cannot drift apart.
+  const setComponents = useCallback(
+    (fn) =>
+      setDraft((d) => {
+        const components = fn(d.components)
+        if (components === d.components) return d
+        return { ...d, components, completeness: inferCompleteness(components, d.fields.type) }
+      }),
+    [],
+  )
 
   const addPhotos = async (e) => {
     const files = [...(e.target.files || [])]
@@ -91,7 +108,11 @@ export default function Scan() {
       const { fields, confidence, summary } = await identifyItem(draft.photos.map((p) => p.full))
       if (cancelled.current) return
       const type = fields.type || 'game'
-      const components = buildComponents(type, fields.components || [], fields.manifest)
+      const graded = fields.condition || {}
+      const components = buildComponents(type, fields.components || [], fields.manifest, graded.parts)
+      // The photos grade the copy as well as identify it; the details step
+      // starts from that grade and says why, and the user can disagree.
+      const suggested = validGrade(graded.overall)
       setDraft((d) => ({
         ...d,
         fields: { ...fields, type },
@@ -101,6 +122,9 @@ export default function Scan() {
         manifestKnown: components.some((c) => c.source === 'release'),
         components,
         completeness: inferCompleteness(components, type),
+        condition: suggested || d.condition,
+        conditionSuggested: suggested,
+        conditionNotes: Array.isArray(graded.notes) ? graded.notes.filter((n) => typeof n === 'string').slice(0, 4) : [],
       }))
       setStep('result')
     } catch (err) {
@@ -146,7 +170,7 @@ export default function Scan() {
         model: draft.fields.model || null,
         condition: draft.condition,
         completeness: draft.completeness,
-        components: draft.components,
+        components: finalizeComponents(draft.components),
         photos: draft.photos,
         locationId: draft.locationId,
         tempStatus: draft.tempStatus,
@@ -185,12 +209,7 @@ export default function Scan() {
         setValue({ status: 'ok', data })
         // Listings describe what a complete copy includes; anything the
         // checklist is missing is added, never removed.
-        if (data.contents?.length) {
-          setDraft((d) => {
-            const merged = mergeListingContents(d.components, data.contents)
-            return merged === d.components ? d : { ...d, components: merged }
-          })
-        }
+        if (data.contents?.length) setComponents((c) => mergeListingContents(c, data.contents))
       } catch (err) {
         if (!cancelled.current) setValue({ status: 'error', message: err.message, code: err.code })
       }
@@ -230,7 +249,9 @@ export default function Scan() {
           />
         )
       case 'result':
-        return <ResultStep draft={draft} onBack={back} onAccept={acceptMatch} onReject={toManualForm} />
+        return (
+          <ResultStep draft={draft} onChange={update} onBack={back} onAccept={acceptMatch} onReject={toManualForm} />
+        )
       case 'components':
         return (
           <ComponentsStep
@@ -239,19 +260,14 @@ export default function Scan() {
             detected={draft.detected}
             manifestKnown={draft.manifestKnown}
             listingsPending={value?.status === 'loading'}
+            completeness={draft.completeness}
             onToggle={(id) =>
-              update({
-                components: draft.components.map((c) => (c.id === id ? { ...c, present: !c.present } : c)),
-              })
+              setComponents((list) => list.map((c) => (c.id === id ? { ...c, present: !c.present } : c)))
             }
-            onAdd={(name) => update({ components: addComponent(draft.components, name) })}
+            onOmit={(id) => setComponents((list) => toggleOmitted(list, id))}
+            onAdd={(name) => setComponents((list) => addComponent(list, name))}
             onBack={back}
-            onNext={() => {
-              // The ticks are the answer to the completeness question; the
-              // details step still lets the user override it.
-              update({ completeness: inferCompleteness(draft.components, draft.fields.type) })
-              setStep('details')
-            }}
+            onNext={() => setStep('details')}
           />
         )
       case 'details':
@@ -262,8 +278,7 @@ export default function Scan() {
             onBack={back}
             onNext={() => setStep('location')}
             onSaveForLater={toManualForm}
-            value={value}
-            onRetryValue={() => runValueLookup(draft.fields, draft.components)}
+            knownSources={knownSources(state.items)}
           />
         )
       case 'location':
@@ -277,7 +292,18 @@ export default function Scan() {
           />
         )
       case 'confirm':
-        return <ConfirmStep draft={draft} saving={saving} onBack={back} onSave={save} onEdit={toManualForm} />
+        return (
+          <ConfirmStep
+            draft={draft}
+            onChange={update}
+            value={value}
+            onRetryValue={() => runValueLookup(draft.fields, draft.components)}
+            saving={saving}
+            onBack={back}
+            onSave={save}
+            onEdit={toManualForm}
+          />
+        )
       case 'success':
         return (
           <SuccessStep
@@ -319,7 +345,7 @@ export default function Scan() {
           </>
         )
     }
-  }, [step, draft, error, busy, saving, savedId, aiReady, value])
+  }, [step, draft, error, busy, saving, savedId, aiReady, value, state.items])
 
   return <div className="pb-4">{content}</div>
 }

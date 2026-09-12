@@ -33,6 +33,12 @@ Respond with ONLY a JSON object, no markdown fences, matching:
     complete, as-sold copy of THIS exact release (region, edition) included,
   "components": array of strings — the physical parts you can actually SEE in
     the photos, using the exact "name" from manifest where it is the same part,
+  "condition": {
+    "overall": one of ["Mint","Near Mint","Excellent","Very Good","Good","Fair","Poor"] | null,
+    "confidence": number 0-1,
+    "notes": array of short strings — the specific things you saw that drove the grade,
+    "parts": array of { "name": manifest name, "grade": one of the same list, "note": string|null }
+  },
   "summary": one-sentence identification,
   "confidence": { "<each populated field>": number between 0 and 1 }
 }
@@ -55,6 +61,15 @@ Rules:
   release well enough to say.
 - For "components", list only parts visibly present in the photos. Do not infer
   a part just because the release normally shipped with it.
+- For "condition", grade the copy the way a collector would from what is
+  actually visible: cracked or crushed packaging, creased or faded artwork,
+  label wear, scratches, yellowing, sun fade, missing seals. Grade each part
+  you can see in "parts" and explain in "note" ("cracked hinge", "crushed
+  corner"). Packaging usually drives the overall grade more than the media.
+  Be conservative — Mint and Near Mint need clear evidence, not the absence of
+  visible flaws in a small photo. Put the flaws you saw in "notes" so the user
+  can check them; if the photos do not show enough to grade, set overall to
+  null rather than guessing.
 - Use null for anything you cannot determine.`
 
 const PROMPT = 'Identify this item and return the JSON object.'
@@ -124,7 +139,7 @@ export async function askClaude(images, cred) {
   const client = new Anthropic({ apiKey: cred.apiKey })
   const response = await client.messages.create({
     model: cred.model,
-    max_tokens: 2048,
+    max_tokens: 4096,
     // Extraction task with a waiting user: medium keeps identification
     // accurate without paying for deep deliberation.
     output_config: { effort: 'medium' },
